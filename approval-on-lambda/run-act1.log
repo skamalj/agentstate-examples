@@ -1,0 +1,10 @@
+run 1: parked on 1 question(s)
+  question_id=3b6bc3d4a85dd6eae5c25a01c4c45191
+  value={'question': {'function': 'escalate_refund', 'args': {'order_id': 'order-4471', 'amount': 41000}}, '__wait__': {'timeout': 'P3D', 'default': {'action': 'reject', 'reason': 'no finance response within P3D'}, 'answer_ttl': None, 'allowed_actions': ['approve', 'reject'], 'tags': {'approver_group': 'finance'}, 'correlation': None}, '__source__': {'function': 'escalate_refund'}}
+run 1: refunds issued = []
+
+--- interpreter exits here ---
+
+run 2: messages on the thread: 1
+run 2: agent says: Hello! I'm the refunds agent for our online store. How can I help you today? If you'd like to request a refund, please provide me with your **order ID** and the **refund amount**, and I'll get that processed for you right away!
+run 2: refunds issued = []

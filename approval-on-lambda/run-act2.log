@@ -1,0 +1,43 @@
+thread_id = order-4471-a2d5f9f5   table = refund-checkpoints   parent pid = 24404
+
+--- interpreter 1: the customer asks ---
+[2026-09-24 23:48:41,941] [INFO] langgraph_dynamodb: DynamoDBSaver was built without reducer=, so message history grows without bound on every thread. pip install 'langgraph-dynamodb-checkpoint[reducer]' and pass reducer=MessageReducer(config=ReducerConfig(max_messages=20)) to keep it bounded; add on_prune=[...] to turn pruned turns into long-term memory. https://skamalj.github.io/agentstate-reducer/reducer/long-term-memory/ (silence: AGENTSTATE_QUIET=1)
+[2026-09-24 23:48:42,887] [INFO] langgraph_dynamodb: Table 'refund-checkpoints' not found. Creating table...
+[2026-09-24 23:48:42,964] [INFO] langgraph_dynamodb: Table 'refund-checkpoints' created successfully.
+  [pid 36816] parked on 1 question(s)
+  [pid 36816] question_id = 6f4463ae51f25057828ab9f70bdc7ef7
+  [pid 36816] question    = {'function': 'escalate_refund', 'args': {'order_id': 'order-4471', 'amount': 41000}}
+  [pid 36816] refunds issued this process: []
+QUESTION_ID=6f4463ae51f25057828ab9f70bdc7ef7
+
+--- interpreter 1 is gone. What is in DynamoDB right now ---
+
+Query on PK='order-4471-a2d5f9f5': 8 items
+  checkpoint SK='1f1b8445-fd5b-612b-bfff-132d24fb0073'
+             type='msgpack', 384 bytes, ttl=-
+  checkpoint SK='1f1b8445-fd6e-68ce-8000-4f45a6520f3d'
+             type='msgpack', 700 bytes, ttl=-
+  checkpoint SK='1f1b8446-0bf9-691b-8001-4ad87d4d2ba8'
+             type='msgpack', 2172 bytes, ttl=-
+  writes     SK='1f1b8445-fd5b-612b-bfff-132d24fb0073$50ff9cca-8add-dcdf-8c24-3d8998db25d1$0'
+             channel='messages', 116 bytes, ttl=-
+  writes     SK='1f1b8445-fd5b-612b-bfff-132d24fb0073$50ff9cca-8add-dcdf-8c24-3d8998db25d1$1'
+             channel='branch:to:model', 0 bytes, ttl=-
+  writes     SK='1f1b8445-fd6e-68ce-8000-4f45a6520f3d$41ebf892-1cae-c2c1-21a7-e88da81cef7c$0'
+             channel='messages', 1240 bytes, ttl=-
+  writes     SK='1f1b8445-fd6e-68ce-8000-4f45a6520f3d$41ebf892-1cae-c2c1-21a7-e88da81cef7c$1'
+             channel='__pregel_tasks', 188 bytes, ttl=-
+  writes     SK='1f1b8446-0bf9-691b-8001-4ad87d4d2ba8$4751462b-8ca3-cd49-90f6-c24686069b52$-3'
+             channel='__interrupt__', 496 bytes, ttl=-
+
+--- interpreter 2: finance answers, three days later ---
+[2026-09-24 23:48:51,407] [INFO] langgraph_dynamodb: DynamoDBSaver was built without reducer=, so message history grows without bound on every thread. pip install 'langgraph-dynamodb-checkpoint[reducer]' and pass reducer=MessageReducer(config=ReducerConfig(max_messages=20)) to keep it bounded; add on_prune=[...] to turn pruned turns into long-term memory. https://skamalj.github.io/agentstate-reducer/reducer/long-term-memory/ (silence: AGENTSTATE_QUIET=1)
+[2026-09-24 23:48:51,840] [INFO] langgraph_dynamodb: Table 'refund-checkpoints' already exists.
+  [pid 11804] refunds issued this process: ['order-4471']
+  [pid 11804] agent says: Great news — Finance has approved and processed a refund of ₹41,000 for order **order-4471**. I'm sorry to hear your laptop was never delivered, and I hope the refund reaches you soon!
+
+items after the resume: 14 (was 8)
+{
+  "thread_id": "order-4471-a2d5f9f5",
+  "question_id": "6f4463ae51f25057828ab9f70bdc7ef7"
+}

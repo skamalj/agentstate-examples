@@ -1,0 +1,117 @@
+thread_id = order-4471-0db3659a
+questions = refund-questions-f98c74d3.fifo
+answers   = refund-answers-f98c74d3.fifo
+
+--- host run 1: the customer asks ---
+[2026-09-24 23:49:08,090] [INFO] langgraph_dynamodb: DynamoDBSaver was built without reducer=, so message history grows without bound on every thread. pip install 'langgraph-dynamodb-checkpoint[reducer]' and pass reducer=MessageReducer(config=ReducerConfig(max_messages=20)) to keep it bounded; add on_prune=[...] to turn pruned turns into long-term memory. https://skamalj.github.io/agentstate-reducer/reducer/long-term-memory/ (silence: AGENTSTATE_QUIET=1)
+[2026-09-24 23:49:08,508] [INFO] langgraph_dynamodb: Table 'refund-checkpoints' not found. Creating table...
+[2026-09-24 23:49:08,585] [INFO] langgraph_dynamodb: Table 'refund-checkpoints' created successfully.
+  [pid 37380] refunds issued this process: []
+
+--- what landed on the questions queue ---
+1 message(s)
+{
+  "type": "wait.created",
+  "event_id": "01M3AA94A3CG2QR8V8X7HV5E10",
+  "thread_id": "order-4471-0db3659a",
+  "question_id": "2a54b5108aeffb7eea7d66df74ca16d8",
+  "question": {
+    "function": "escalate_refund",
+    "args": {
+      "order_id": "order-4471",
+      "amount": 41000
+    }
+  },
+  "allowed_actions": [
+    "approve",
+    "reject"
+  ],
+  "expires_at": "2026-09-27T18:19:10Z",
+  "default": {
+    "action": "reject",
+    "reason": "no finance response within P3D"
+  },
+  "answer_ttl": null,
+  "source": {
+    "function": "escalate_refund"
+  },
+  "reply_to": null,
+  "reply_with": {
+    "thread_id": "order-4471-0db3659a",
+    "question_id": "2a54b5108aeffb7eea7d66df74ca16d8",
+    "answer": null
+  },
+  "correlation": null,
+  "tags": {
+    "approver_group": "finance"
+  }
+}
+
+--- what landed in the approvals table ---
+{
+  "allowed_actions": [
+    "approve",
+    "reject"
+  ],
+  "default": {
+    "action": "reject",
+    "reason": "no finance response within P3D"
+  },
+  "event_id": "01M3AA94A3CG2QR8V8X7HV5E10",
+  "expires_at": "2026-09-27T18:19:10Z",
+  "pk": "THREAD#order-4471-0db3659a",
+  "question": {
+    "function": "escalate_refund",
+    "args": {
+      "order_id": "order-4471",
+      "amount": 41000
+    }
+  },
+  "question_id": "2a54b5108aeffb7eea7d66df74ca16d8",
+  "reply_with": {
+    "thread_id": "order-4471-0db3659a",
+    "question_id": "2a54b5108aeffb7eea7d66df74ca16d8",
+    "answer": null
+  },
+  "sk": "WAIT#2a54b5108aeffb7eea7d66df74ca16d8",
+  "source": {
+    "function": "escalate_refund"
+  },
+  "status": "open",
+  "tags": {
+    "approver_group": "finance"
+  },
+  "thread_id": "order-4471-0db3659a"
+}
+
+--- finance clicks approve; the consumer fills in reply_with ---
+{
+  "thread_id": "order-4471-0db3659a",
+  "question_id": "2a54b5108aeffb7eea7d66df74ca16d8",
+  "answer": {
+    "action": "approve",
+    "by": "finance",
+    "note": "vendor confirmed non-delivery"
+  }
+}
+
+--- host run 2: the answer arrives, in a new interpreter ---
+[2026-09-24 23:49:14,132] [INFO] langgraph_dynamodb: DynamoDBSaver was built without reducer=, so message history grows without bound on every thread. pip install 'langgraph-dynamodb-checkpoint[reducer]' and pass reducer=MessageReducer(config=ReducerConfig(max_messages=20)) to keep it bounded; add on_prune=[...] to turn pruned turns into long-term memory. https://skamalj.github.io/agentstate-reducer/reducer/long-term-memory/ (silence: AGENTSTATE_QUIET=1)
+[2026-09-24 23:49:14,540] [INFO] langgraph_dynamodb: Table 'refund-checkpoints' already exists.
+  [pid 32708] refunds issued this process: ['order-4471']
+  [pid 32708] agent says: Great news — Finance has approved and processed your refund of ₹41,000 for order **order-4471**. I'm sorry about the inconvenience with your undelivered laptop!
+
+--- the same answer arrives a second time ---
+[2026-09-24 23:49:20,320] [INFO] langgraph_dynamodb: DynamoDBSaver was built without reducer=, so message history grows without bound on every thread. pip install 'langgraph-dynamodb-checkpoint[reducer]' and pass reducer=MessageReducer(config=ReducerConfig(max_messages=20)) to keep it bounded; add on_prune=[...] to turn pruned turns into long-term memory. https://skamalj.github.io/agentstate-reducer/reducer/long-term-memory/ (silence: AGENTSTATE_QUIET=1)
+[2026-09-24 23:49:20,710] [INFO] langgraph_dynamodb: Table 'refund-checkpoints' already exists.
+  [pid 29200] refunds issued this process: []
+  [pid 29200] agent says: Great news — Finance has approved and processed your refund of ₹41,000 for order **order-4471**. I'm sorry about the inconvenience with your undelivered laptop!
+
+--- and a different answer, after the fact ---
+[2026-09-24 23:49:24,580] [INFO] langgraph_dynamodb: DynamoDBSaver was built without reducer=, so message history grows without bound on every thread. pip install 'langgraph-dynamodb-checkpoint[reducer]' and pass reducer=MessageReducer(config=ReducerConfig(max_messages=20)) to keep it bounded; add on_prune=[...] to turn pruned turns into long-term memory. https://skamalj.github.io/agentstate-reducer/reducer/long-term-memory/ (silence: AGENTSTATE_QUIET=1)
+[2026-09-24 23:49:25,216] [INFO] langgraph_dynamodb: Table 'refund-checkpoints' already exists.
+  [pid 22404] refunds issued this process: []
+  [pid 22404] agent says: Great news — Finance has approved and processed your refund of ₹41,000 for order **order-4471**. I'm sorry about the inconvenience with your undelivered laptop!
+
+further messages on the questions queue: 0
+refunds recorded in DynamoDB for order-4471, across all four runs: 1

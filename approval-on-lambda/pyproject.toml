@@ -1,0 +1,22 @@
+[project]
+name = "approval-on-lambda"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "agent-wait[aws,langgraph]==0.7.0",
+    "langchain>=1.0",
+    "langchain-aws>=1.7.9",
+    "langgraph-dynamodb-checkpoint==0.5.0",
+]
+
+[dependency-groups]
+dev = [
+    "aws-cdk-lib>=2.270.0",
+    "constructs>=10.8.1",
+    "moto[server]>=5.2.3",
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".", "tests"]

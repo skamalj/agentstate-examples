@@ -1,0 +1,32 @@
+thread_id = order-4471-67700716
+WaitPolicy(timeout='P3D')
+DynamoDBSaver(ttl_seconds=86400)
+[2026-09-24 23:49:36,493] [INFO] langgraph_dynamodb: DynamoDBSaver was built without reducer=, so message history grows without bound on every thread. pip install 'langgraph-dynamodb-checkpoint[reducer]' and pass reducer=MessageReducer(config=ReducerConfig(max_messages=20)) to keep it bounded; add on_prune=[...] to turn pruned turns into long-term memory. https://skamalj.github.io/agentstate-reducer/reducer/long-term-memory/ (silence: AGENTSTATE_QUIET=1)
+[2026-09-24 23:49:36,895] [INFO] langgraph_dynamodb: Table 'refund-checkpoints-ttl' not found. Creating table...
+[2026-09-24 23:49:36,985] [INFO] langgraph_dynamodb: Table 'refund-checkpoints-ttl' created successfully.
+QUESTION_ID=aea0852fb9c1a168efbeb52fb09b48d0
+EXPIRES_AT=2026-09-27T18:19:38Z
+
+parked items: 8, every one with a ttl attribute
+{
+  "table TTL": {
+    "TimeToLiveStatus": "ENABLED",
+    "AttributeName": "ttl"
+  },
+  "checkpoint ttl (epoch)": 1790360377,
+  "checkpoint ttl (utc)": "2026-09-25T18:19:37Z",
+  "envelope expires_at": "2026-09-27T18:19:38Z"
+}
+
+the question outlives the thread by 2 days, 0:00:01
+
+--- DynamoDB reaches the ttl and deletes the thread ---
+items for this thread: 0
+
+--- day two: finance approves the question it can still see ---
+[2026-09-24 23:49:42,217] [INFO] langgraph_dynamodb: DynamoDBSaver was built without reducer=, so message history grows without bound on every thread. pip install 'langgraph-dynamodb-checkpoint[reducer]' and pass reducer=MessageReducer(config=ReducerConfig(max_messages=20)) to keep it bounded; add on_prune=[...] to turn pruned turns into long-term memory. https://skamalj.github.io/agentstate-reducer/reducer/long-term-memory/ (silence: AGENTSTATE_QUIET=1)
+[2026-09-24 23:49:42,632] [INFO] langgraph_dynamodb: Table 'refund-checkpoints-ttl' already exists.
+  [pid 37200] refunds issued this process: []
+  [pid 37200] agent says: Hello! Welcome to our refunds support. How can I help you today? If you'd like to request a refund, please share your **
+
+refunds recorded in DynamoDB for order-4471: 0

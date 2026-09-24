@@ -1,0 +1,9 @@
+agent-wait {"event": "wait.created", "event_id": "01M3AB0ZQQFX7WV7HYN5H29SFW", "thread_id": "order-fc56ea", "question_id": "69c801fd266478c44601a51789d2417b", "allowed_actions": ["approve", "reject"], "expires_at": "2026-09-27T18:32:11Z", "tags": {"approver_group": "finance"}}
+{"thread_id": "order-fc56ea", "kind": "start", "parked_on": ["69c801fd266478c44601a51789d2417b"], "refunds_by_this_container": [], "reply": ""}
+REPORT Duration: 1642.21 ms	Billed Duration: 5718 ms	Memory Size: 1024 MB	Max Memory Used: 178 MB	Init Duration: 4075.36 ms
+{"thread_id": "order-fc56ea", "kind": "answer", "parked_on": [], "refunds_by_this_container": ["order-fc56ea"], "reply": "Finance has reviewed and approved your refund of \u20b941,000 for order **order-fc56ea** \u2014 the money will be returned to your original payment method shortly."}
+REPORT Duration: 1697.55 ms	Billed Duration: 1698 ms	Memory Size: 1024 MB	Max Memory Used: 179 MB
+{"thread_id": "order-fc56ea", "kind": "answer", "parked_on": [], "refunds_by_this_container": ["order-fc56ea"], "reply": "Finance has reviewed and approved your refund of \u20b941,000 for order **order-fc56ea** \u2014 the money will be returned to your original payment method shortly."}
+REPORT Duration: 15.31 ms	Billed Duration: 16 ms	Memory Size: 1024 MB	Max Memory Used: 179 MB
+{"thread_id": "order-fc56ea", "kind": "answer", "parked_on": [], "refunds_by_this_container": ["order-fc56ea"], "reply": "Finance has reviewed and approved your refund of \u20b941,000 for order **order-fc56ea** \u2014 the money will be returned to your original payment method shortly."}
+REPORT Duration: 14.45 ms	Billed Duration: 15 ms	Memory Size: 1024 MB	Max Memory Used: 179 MB

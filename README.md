@@ -15,6 +15,7 @@ uv run python main.py     # the demo itself
 |---|---|
 | `prune-30-turns/` | We ran the pruner for 30 turns. Here is what the agent remembered. |
 | `missing-link/` | Every agent framework has a checkpointer and a store. None of them connects the two. |
+| `approval-on-lambda/` | Human-in-the-loop LangGraph on AWS Lambda. |
 
 Docs: <https://skamalj.github.io/agentstate-reducer/>
 
