@@ -474,6 +474,7 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "agentstate-reducer", extra = ["langgraph"] },
+    { name = "langchain" },
     { name = "langchain-core" },
     { name = "langgraph" },
     { name = "langgraph-memory" },
@@ -484,6 +485,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "agentstate-reducer", extras = ["langgraph"], specifier = ">=0.5.0" },
+    { name = "langchain", specifier = ">=1.0" },
     { name = "langchain-core", specifier = ">=1.6.4" },
     { name = "langgraph", specifier = ">=1.2.12" },
     { name = "langgraph-memory", specifier = ">=0.1.0" },

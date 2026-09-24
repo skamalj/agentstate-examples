@@ -90,6 +90,17 @@ graph.invoke({"messages": [("user", "I moved to Hanoi last month")]}, config=cfg
 
 After six turns the checkpoint holds four messages and `engine.recall("moving to a new city", ("memories", "kamal"))` returns the Hanoi turn and the flight preference, once each.
 
+**Plain LangChain agents too.** LangChain 1.0's `create_agent` compiles to a LangGraph graph, so its `checkpointer=` is the same slot and the reducer works there unchanged. Same store, same engine, same hook:
+
+```python
+agent = create_agent(model, tools=[],
+                     checkpointer=ReducingSaver(InMemorySaver(), reducer),   # same slot, same reducer
+                     store=store)
+agent.invoke({"messages": [("user", "I moved to Hanoi last month")]}, config=cfg)
+```
+
+With a fake chat model replying "noted", the result is the same as the graph version: four messages in the checkpoint, the Hanoi turn and the flight preference in the store. One thing the fake model taught me: LangGraph's `add_messages` merges messages that share an id, so a scripted model must return a fresh message object per turn, not the same one on a loop.
+
 One limit: `ReducingSaver` replaces the messages channel value wholesale, so it must not be used on a channel backed by LangGraph's `DeltaChannel`. It also does not change what the model sees mid-run. The reduced list is what the next invoke loads.
 
 ## CrewAI
@@ -169,7 +180,8 @@ Every snippet above is cut from a script that ran offline on the day of writing,
 
 | Example | Test | Key versions |
 |---|---|---|
-| `langgraph/` | passed | agentstate-reducer 0.5.0, langgraph 1.2.12, langgraph-memory 0.1.0 |
+| `langgraph/` (graph, `main.py`) | passed | agentstate-reducer 0.5.0, langgraph 1.2.12, langgraph-memory 0.1.0 |
+| `langgraph/` (LangChain `create_agent`, `main_langchain.py`) | passed | langchain 1.4.2, same reducer and engine |
 | `crewai/` | passed | crewai 1.15.22, crewai-persistence-sql 0.2.1, crewai-memory-core 0.1.0 |
 | `strands/` | passed | strands-agents 1.57.0, strands-session-sql 0.2.0 |
 | `pydantic-ai/` | passed | pydantic-ai 2.48.0, pydantic-ai-harness 0.34.0, pydantic-ai-memory-core 0.1.0, pydantic-ai-persistence 0.1.0 |

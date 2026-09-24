@@ -4,6 +4,7 @@ version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
     "agentstate-reducer[langgraph]>=0.5.0",
+    "langchain>=1.0",
     "langchain-core>=1.6.4",
     "langgraph>=1.2.12",
     "langgraph-memory>=0.1.0",
