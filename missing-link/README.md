@@ -1,8 +1,8 @@
 # missing-link
 
-Runnable code behind the post **"Every agent framework has a checkpointer and a store. None of them connects the two."** (`blog.md` in this folder).
+Runnable code behind the post **"Agent Memory: Connect the Checkpointer to the Store"** (`blog.md` in this folder). Every snippet in the post is cut from a script here, and every script has a test.
 
-One uv project per framework, because the four frameworks do not share a dependency set. Every example runs offline: scripted models, deterministic embedders, in-memory or SQLite stores. Each `main.py` prints the short-term window and the long-term memory side by side; each test asserts that the turns which left the window reached the memory side, once each.
+One uv project per framework, because the four frameworks do not share a dependency set. Every example runs offline: scripted models, deterministic embedders, in-memory or SQLite stores. No API keys, no databases. Each `main.py` prints the short-term window and the long-term memory side by side; each test asserts that the turns which left the window reached the memory side, once each.
 
 | Folder | Short-term (ours) | Reducer runs where | Long-term (ours / theirs) |
 |---|---|---|---|
@@ -23,6 +23,20 @@ uv run pytest -q
 The `langgraph/` project has a second script, `main_langchain.py`, for LangChain's `create_agent`: `uv run python main_langchain.py`.
 
 Python 3.12 (`uv venv -p 3.12` was used to create each project). Nothing needs an API key or a database.
+
+## What was verified
+
+All tests passed on 2026-09-24 (`uv run pytest -q` in each folder), against these versions from each project's `uv.lock`:
+
+| Example | Test | Key versions |
+|---|---|---|
+| `langgraph/` (graph, `main.py`) | passed | agentstate-reducer 0.5.0, langgraph 1.2.12, langgraph-memory 0.1.0, langgraph-store-core 0.1.1 |
+| `langgraph/` (LangChain `create_agent`, `main_langchain.py`) | passed | langchain 1.4.2, same reducer and engine |
+| `crewai/` | passed | agentstate-reducer 0.5.0, crewai 1.15.22, crewai-persistence-sql 0.2.1, crewai-memory-core 0.1.0 |
+| `strands/` | passed | agentstate-reducer 0.5.0, strands-agents 1.57.0, strands-session-sql 0.2.0 |
+| `pydantic-ai/` | passed | agentstate-reducer 0.5.0, pydantic-ai 2.48.0, pydantic-ai-harness 0.34.0, pydantic-ai-memory-core 0.1.0, pydantic-ai-persistence 0.1.0 |
+
+Each test asserts: the persisted window holds at most six messages, the early turns ("I moved to Hanoi last month", "I prefer late flights") are no longer in it, they are recallable from the long-term side under the user namespace, and each was delivered once.
 
 ## How each project was created
 

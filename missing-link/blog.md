@@ -1,4 +1,6 @@
-# Every agent framework has a checkpointer and a store. None of them connects the two.
+# Agent Memory: Connect the Checkpointer to the Store
+
+*Every agent framework has a checkpointer and a store. None of them connects the two.*
 
 LangGraph, CrewAI, Strands and PydanticAI all agree on one thing: an agent needs two kinds of memory. Short-term memory is the conversation you are in. Long-term memory is what you keep about the user after the conversation is gone.
 
@@ -25,7 +27,7 @@ I read each framework's current docs before writing this, because "nothing conne
 
 - **LangGraph** describes checkpointers and stores as complementary and separate: a checkpointer tracks the thread, a store tracks durable information across threads. The memory page offers two ways to write long-term memory, "in the hot path" or "in the background", and both are code you add.
 - **CrewAI** does write memory automatically, but from *task output*: after each task, facts are extracted from the result and stored. Flow state, the thing `@persist` saves, has no bridge to `Memory`.
-- **Strands** extracts memories from live messages through `MemoryManager` on a trigger (every turn, or every N turns), tracking a high-water mark per store. Conversation management, which trims the window, is documented as a separate concern from memory. Nothing hands trimmed messages to a store.
+- **Strands** comes closest. `MemoryManager` extracts memories from live messages on a turn-based trigger (every turn, or every N turns) and keeps a high-water mark per store so a batch is not extracted twice. What it does not have is a link to the window: conversation management, which trims it, is a separate concern, and the trigger is the turn count, not "this message is leaving".
 - **PydanticAI's** harness expects the *model* to write memory, through `write_memory`, `read_memory` and `search_memory` tools. There is no link from step history or history compaction to the notebook.
 
 So the claim, precisely: in all four, moving conversation out of the short-term pipe and into the long-term pipe is your code. That is the dashed line on the left of the picture above, running from the agent turn around the checkpointer and into the store. Meanwhile the messages that fall out of the window take the other dashed line, straight down to "forgotten", because nothing fires when they leave. And the code on the dashed path has to answer the three questions written beside it, which the framework does not.
@@ -133,7 +135,9 @@ The flow appends ten turns. The persisted state holds four. `memory.recall("movi
 
 ## Strands
 
-Strands is the honest exception. Our session managers (`strands-session-dynamodb`, `-mongodb`, `-sql`) persist the session but do **not** run the reducer, so you call `reduce()` yourself where you prune. Strands' own `ModelExtractor` runs on the live message path through `MemoryManager`, not on what you pass to `add`, so a hook that wants extracted facts from pruned turns has to call an extractor itself.
+Strands needs a more careful claim, because it already has half of this. `MemoryManager` runs `ModelExtractor` over live messages every turn or every N turns, with its own high-water mark. If your prune also fires every N turns, the extraction side looks the same either way. A Strands user who only wants periodic extraction does not need the reducer.
+
+What the reducer adds in Strands is not the trigger. It is the window bound itself, one delivery per message id that survives restarts and duplicate saves without a cursor, the same hook and namespace shape as the other three frameworks, and failure containment. Two limits go with that. Our session managers (`strands-session-dynamodb`, `-mongodb`, `-sql`) persist the session but do **not** run the reducer, so you call `reduce()` yourself where you prune. And `ModelExtractor` runs on the live path, not on what you pass to `add`, so a hook that wants extracted facts from pruned turns calls an extractor itself.
 
 ```python
 manager = MemoryManager(stores=[store], injection=False, search_tool_config=False)
@@ -152,7 +156,7 @@ for turn in TURNS:
     agent.messages[:] = result.surviving
 ```
 
-You still get the exactly-once delivery, the namespace and the failure containment, because those live in the reducer. What you do not get is the reducer running inside the session save. Trimming `agent.messages` in place bounds the in-process window; the session store keeps the full history unless you also configure a conversation manager. Both are stated in the example.
+Exactly-once delivery, the namespace and the failure containment all come along, because they live in the reducer, not in the framework. What you do not get is the reducer running inside the session save. Trimming `agent.messages` in place bounds the in-process window; the session store keeps the full history unless you also configure a conversation manager. Both are stated in the example.
 
 ## PydanticAI
 
@@ -180,30 +184,11 @@ Four frameworks, four examples, one shape. Before the results, here they are sid
 
 ![Where reduce() runs in each framework: inside the framework's save for LangGraph (ReducingSaver / checkpointer.put) and CrewAI (@persist save_state); called by you just before the save for Strands and PydanticAI. In all four the pruned messages go to the on_prune hook and on to that framework's long-term memory under the user namespace.](images/where-reduce-runs.png)
 
-Read it by lane. In the top two, LangGraph and CrewAI, the `reduce()` box sits inside the framework's own save box: `ReducingSaver.put` or the checkpointer's `put`, and `@persist`'s `save_state`. You configure the reducer once and never call it. In the bottom two, Strands and PydanticAI, the `reduce()` box sits outside the save, because you call it just before the session manager or the history store writes. The Strands lane carries the asterisk from earlier: the session store still holds the full history unless a conversation manager is configured. What does not change from lane to lane is the orange `pruned` line. In all four it leaves the reducer once per message and lands in that framework's own long-term memory, under the namespace the app chose.
+Read it by lane. In the top two, LangGraph and CrewAI, the `reduce()` box sits inside the framework's own save box: `ReducingSaver.put` or the checkpointer's `put`, and `@persist`'s `save_state`. You configure the reducer once and never call it. In the bottom two, Strands and PydanticAI, the `reduce()` box sits outside the save, because you call it just before the session manager or the history store writes. The Strands lane carries the asterisk from earlier: the session store still holds the full history unless a conversation manager is configured, and Strands' own turn-based extraction keeps running beside this path if you leave it on. What does not change from lane to lane is the orange `pruned` line. In all four it leaves the reducer once per message and lands in that framework's own long-term memory, under the namespace the app chose.
 
 ## What actually ran
 
-Every snippet above is cut from a script that ran offline on the day of writing, with a test that asserts the pruned turns reached the memory side and the window stayed bounded. No API keys, no databases: scripted models, deterministic embedders, in-memory or SQLite stores.
-
-| Example | Test | Key versions |
-|---|---|---|
-| `langgraph/` (graph, `main.py`) | passed | agentstate-reducer 0.5.0, langgraph 1.2.12, langgraph-memory 0.1.0 |
-| `langgraph/` (LangChain `create_agent`, `main_langchain.py`) | passed | langchain 1.4.2, same reducer and engine |
-| `crewai/` | passed | crewai 1.15.22, crewai-persistence-sql 0.2.1, crewai-memory-core 0.1.0 |
-| `strands/` | passed | strands-agents 1.57.0, strands-session-sql 0.2.0 |
-| `pydantic-ai/` | passed | pydantic-ai 2.48.0, pydantic-ai-harness 0.34.0, pydantic-ai-memory-core 0.1.0, pydantic-ai-persistence 0.1.0 |
-
-Reproduce any of them with uv:
-
-```bash
-cd missing-link/langgraph      # or crewai, strands, pydantic-ai
-uv sync
-uv run python main.py
-uv run pytest -q
-```
-
-The full code is at <https://github.com/skamalj/agentstate-examples/tree/main/missing-link>, one uv project per framework. The package docs, including the extractor snippets for real backends, are at <https://skamalj.github.io/agentstate-reducer/>.
+Every snippet above is cut from a script that ran offline, with a test that asserts the pruned turns reached the memory side and the window stayed bounded, using scripted models and in-memory or SQLite stores. The code, the versions it ran against and the uv commands to reproduce it are at <https://github.com/skamalj/agentstate-examples/tree/main/missing-link>; the package docs, including extractor snippets for real backends, are at <https://skamalj.github.io/agentstate-reducer/>.
 
 ## The point
 
