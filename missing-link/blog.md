@@ -8,6 +8,8 @@ What none of them ships is the joint between the pipes. When a turn falls out of
 
 This post is about the one place it fits.
 
+![Left: today the agent saves its thread to a checkpointer, and whatever your code writes to the long-term store is separate; messages pruned from the window are simply forgotten. Right: with the reducer inside the save, pruned messages reach the on_prune hook once each and flow to the long-term store under a user namespace.](images/two-pipes-and-the-joint.png)
+
 ## Two pipes, four frameworks
 
 Here is what each framework calls its two pipes. The names differ, the shape does not.
@@ -173,6 +175,8 @@ await history.save(conversation_id, [m["raw"] for m in reduced.surviving])
 Two limits. The memory side is append-only from the hook: there is no extraction and no consolidation, because the harness reserves that for the model. And the reducer prunes by role (human and ai), while PydanticAI messages carry a `kind` (request and response), so the example wraps each message in a dict with a role before reducing. That is the `with_roles` shim above.
 
 The PydanticAI history side has no framework save path either. `KVHistoryStore` from `pydantic-ai-persistence` is a plain save, so the reduce goes just before it, which is the same place the checkpointers put it.
+
+![Where reduce() runs in each framework: inside the framework's save for LangGraph (ReducingSaver / checkpointer.put) and CrewAI (@persist save_state); called by you just before the save for Strands and PydanticAI. In all four the pruned messages go to the on_prune hook and on to that framework's long-term memory under the user namespace.](images/where-reduce-runs.png)
 
 ## What actually ran
 
