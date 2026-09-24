@@ -6,7 +6,7 @@ They also agree on the plumbing. Two pipes. One for each.
 
 What none of them ships is the joint between the pipes. When a turn falls out of the context window, nothing moves it into long-term memory. That joint is left for you to build, and the obvious places to build it are all slightly wrong.
 
-This post is about the one place it fits.
+This post is about the one place it fits. Here is the whole argument in one picture: on the left, the two pipes as they ship today, with the bridge between them drawn as a dashed line because it is code you write; on the right, the same two pipes with the joint where I think it belongs.
 
 ![Left: today the agent saves its thread to a checkpointer, and whatever your code writes to the long-term store is separate; messages pruned from the window are simply forgotten. Right: with the reducer inside the save, pruned messages reach the on_prune hook once each and flow to the long-term store under a user namespace.](images/two-pipes-and-the-joint.png)
 
@@ -28,7 +28,7 @@ I read each framework's current docs before writing this, because "nothing conne
 - **Strands** extracts memories from live messages through `MemoryManager` on a trigger (every turn, or every N turns), tracking a high-water mark per store. Conversation management, which trims the window, is documented as a separate concern from memory. Nothing hands trimmed messages to a store.
 - **PydanticAI's** harness expects the *model* to write memory, through `write_memory`, `read_memory` and `search_memory` tools. There is no link from step history or history compaction to the notebook.
 
-So the claim, precisely: in all four, moving conversation out of the short-term pipe and into the long-term pipe is your code. And your code has to answer three questions the framework does not.
+So the claim, precisely: in all four, moving conversation out of the short-term pipe and into the long-term pipe is your code. That is the dashed line on the left of the picture above, running from the agent turn around the checkpointer and into the store. Meanwhile the messages that fall out of the window take the other dashed line, straight down to "forgotten", because nothing fires when they leave. And the code on the dashed path has to answer the three questions written beside it, which the framework does not.
 
 ## The three questions
 
@@ -53,7 +53,7 @@ reducer = MessageReducer(config=ReducerConfig(
 ))
 ```
 
-That is the whole joint. The persistence layer computes `surviving` and `pruned`, writes `surviving`, and hands `pruned` to your hook with a namespace that the *app* chose (the user, the tenant, the account). Nothing else changes.
+That is the whole joint, the right-hand side of the first picture. The persistence layer computes `surviving` and `pruned`, writes `surviving`, and hands `pruned` to your hook with a namespace that the *app* chose (the user, the tenant, the account). Nothing else changes.
 
 ```
 persistence.save(...)
@@ -176,7 +176,11 @@ Two limits. The memory side is append-only from the hook: there is no extraction
 
 The PydanticAI history side has no framework save path either. `KVHistoryStore` from `pydantic-ai-persistence` is a plain save, so the reduce goes just before it, which is the same place the checkpointers put it.
 
+Four frameworks, four examples, one shape. Before the results, here they are side by side, one lane each, so you can see where `reduce()` actually runs in each and where the pruned messages go.
+
 ![Where reduce() runs in each framework: inside the framework's save for LangGraph (ReducingSaver / checkpointer.put) and CrewAI (@persist save_state); called by you just before the save for Strands and PydanticAI. In all four the pruned messages go to the on_prune hook and on to that framework's long-term memory under the user namespace.](images/where-reduce-runs.png)
+
+Read it by lane. In the top two, LangGraph and CrewAI, the `reduce()` box sits inside the framework's own save box: `ReducingSaver.put` or the checkpointer's `put`, and `@persist`'s `save_state`. You configure the reducer once and never call it. In the bottom two, Strands and PydanticAI, the `reduce()` box sits outside the save, because you call it just before the session manager or the history store writes. The Strands lane carries the asterisk from earlier: the session store still holds the full history unless a conversation manager is configured. What does not change from lane to lane is the orange `pruned` line. In all four it leaves the reducer once per message and lands in that framework's own long-term memory, under the namespace the app chose.
 
 ## What actually ran
 

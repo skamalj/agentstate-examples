@@ -1,0 +1,282 @@
+chat model      : global.anthropic.claude-sonnet-4-6
+embedding model : amazon.titan-embed-text-v2:0 (dims=1024)
+window          : max_messages=10 min_messages=6
+consolidation   : threshold=0.4, custom same-subject prompt
+recall limit    : 8
+thread A        : trip-f1ead3b3   namespace=('memories', 'asha')
+
+--- turn 01 | user: Hi! I want to plan a two-week trip to Japan in the second week of Nov...
+    agent: Great timing — mid-November is perfect for fall foliage in Japan! A classic route would be Tokyo (3-4 days), ...
+    checkpoint holds 2 messages
+--- turn 02 | user: I'll be flying out of Bangalore, BLR is my home airport.
+    agent: There are several good options from BLR, including direct or one-stop flights to Tokyo (Narita or Haneda) via...
+    checkpoint holds 4 messages
+--- turn 03 | user: I'm travelling with my sister Meera, so two adults.
+    agent: Travelling as a pair makes things easy — you can share accommodation costs and split a Japan Rail Pass, which...
+    checkpoint holds 6 messages
+--- turn 04 | user: I strongly prefer morning departures, I hate arriving anywhere at nig...
+    agent: That's a smart preference, especially in Japan where you'll want to hit the ground running! We'll keep that i...
+    checkpoint holds 8 messages
+--- turn 05 | user: Budget for the two of us is about 4 lakh rupees, flights included.
+    agent: That works out to roughly $2,400 USD for two people including flights, which is workable but will require som...
+    checkpoint holds 10 messages
+--- turn 06 | user: We're both vegetarian, and I'm allergic to peanuts, so food matters a...
+    agent: Japan can be tricky for vegetarians, but Kyoto especially has excellent shojin ryori (Buddhist temple cuisine...
+    checkpoint holds 6 messages
+    PRUNED 5 messages -> on_prune(namespace=('memories', 'asha')):
+        left window : human: Hi! I want to plan a two-week trip to Japan in the second w...
+        left window : ai: Great timing — mid-November is perfect for fall foliage in ...
+        left window : human: I'll be flying out of Bangalore, BLR is my home airport.
+        left window : ai: There are several good options from BLR, including direct o...
+        left window : human: I'm travelling with my sister Meera, so two adults.
+        memory      : NEW [6332fe7e] The user is planning a two-week trip to Japan in the second week of November.  (importance=0.90, travel,decision)
+        memory      : NEW [8fcc2b6b] The user's home airport is Bangalore (BLR).  (importance=0.90, personal,travel)
+        memory      : NEW [fb435e19] The user is travelling with their sister Meera — a party of two adults.  (importance=0.80, personal,travel)
+    PRUNED 1 messages -> on_prune(namespace=('memories', 'asha')):
+        left window : ai: Travelling as a pair makes things easy — you can share acco...
+        memory      : NEW [a4430db6] The user is travelling to Japan as a pair (two people).  (importance=0.80, travel,personal)
+        memory      : NEW [54ddf9fd] The user's Japan trip covers the Tokyo-Kyoto-Osaka route.  (importance=0.90, travel,destination)
+        memory      : NEW [2013cfbd] The user is considering purchasing a Japan Rail Pass for their trip.  (importance=0.70, travel,decision)
+--- turn 07 | user: Which cities would you suggest for a first trip? We like temples and ...
+    agent: Kyoto, Osaka, and Nara make a perfect trio for you — Kyoto is temple heaven, Nara has incredible deer parks a...
+    checkpoint holds 8 messages
+--- turn 08 | user: Tokyo, Kyoto and Osaka sounds right. How many nights in each?
+    agent: I'd suggest 3 nights Tokyo, 3 nights Kyoto, and 2 nights Osaka, with a day trip to Nara slotted in from Kyoto...
+    checkpoint holds 10 messages
+--- turn 09 | user: Is the JR Pass still worth it for that route?
+    agent: For just the Tokyo-Kyoto-Osaka corridor, the JR Pass likely won't save you money anymore given the recent pri...
+    checkpoint holds 6 messages
+    PRUNED 5 messages -> on_prune(namespace=('memories', 'asha')):
+        left window : human: I strongly prefer morning departures, I hate arriving anywh...
+        left window : ai: That's a smart preference, especially in Japan where you'll...
+        left window : human: Budget for the two of us is about 4 lakh rupees, flights in...
+        left window : ai: That works out to roughly $2,400 USD for two people includi...
+        left window : human: We're both vegetarian, and I'm allergic to peanuts, so food...
+        memory      : NEW [f7cea1b4] The user strongly prefers morning departures and dislikes arriving at destinations at night.  (importance=0.80, preference,travel)
+        memory      : NEW [d45dfb17] The user's total trip budget for two people is approximately 4 lakh rupees (roughly $2,400 USD), including flights.  (importance=0.90, budget,travel)
+        memory      : NEW [fbc4d3dc] The user and their travel companion are both vegetarian.  (importance=0.90, preference,food,personal)
+        memory      : NEW [38598c5c] The user is allergic to peanuts.  (importance=1.00, health,food,personal)
+    PRUNED 1 messages -> on_prune(namespace=('memories', 'asha')):
+        left window : ai: Japan can be tricky for vegetarians, but Kyoto especially h...
+        memory      : (nothing durable extracted)
+--- turn 10 | user: I always book window seats, Meera takes the aisle.
+    agent: Good to know — on the Shinkansen, seats on the E side (rows facing Mount Fuji) are especially worth grabbing ...
+    checkpoint holds 8 messages
+--- turn 11 | user: My passport expires in March 2027. Is that a problem for a November t...
+    agent: Japan requires your passport to be valid for the duration of your stay, so a March 2027 expiry is fine for a ...
+    checkpoint holds 10 messages
+--- turn 12 | user: Do Indians need a visa for Japan? We have never been.
+    agent: Yes, Indian passport holders need a visa for Japan — you'll apply at the Japanese consulate or embassy in Ind...
+    checkpoint holds 6 messages
+    PRUNED 5 messages -> on_prune(namespace=('memories', 'asha')):
+        left window : human: Which cities would you suggest for a first trip? We like te...
+        left window : ai: Kyoto, Osaka, and Nara make a perfect trio for you — Kyoto ...
+        left window : human: Tokyo, Kyoto and Osaka sounds right. How many nights in eac...
+        left window : ai: I'd suggest 3 nights Tokyo, 3 nights Kyoto, and 2 nights Os...
+        left window : human: Is the JR Pass still worth it for that route?
+        memory      : UPDATED [54ddf9fd] The user's Japan trip covers the Tokyo-Kyoto-Osaka route, and this is their first trip to Japan.  (importance=0.90, decision,destination,travel)
+        memory      : NEW [b14ec4ff] The user prefers temples and food markets over nightlife.  (importance=0.80, preference,travel)
+        memory      : NEW [f8f439fa] The user's planned itinerary for their Japan trip is 3 nights in Tokyo, 3 nights in Kyoto, and 2 nights in Osaka (8 nights total).  (importance=0.85, travel,decision)
+        memory      : NEW [17c86b6a] The user is considering a day trip to Nara from Kyoto.  (importance=0.70, travel,decision)
+        memory      : UPDATED [2013cfbd] The user is considering purchasing a Japan Rail Pass for their trip and is specifically interested in whether the JR Pass is worth it for the Tokyo–Kyoto–Osaka route.  (importance=0.70, decision,travel)
+    PRUNED 1 messages -> on_prune(namespace=('memories', 'asha')):
+        left window : ai: For just the Tokyo-Kyoto-Osaka corridor, the JR Pass likely...
+        memory      : (nothing durable extracted)
+--- turn 13 | user: What's the weather like in Kyoto in mid-November?
+    agent: Mid-November in Kyoto is crisp and cool (around 10–18°C), and it's one of the best times to visit for stunnin...
+    checkpoint holds 8 messages
+--- turn 14 | user: I'd like one night in a traditional ryokan with an onsen, ideally in ...
+    agent: Hakone is perfect for that — ryokans like Gora Kadan or Hakone Ginyu offer beautiful onsen experiences with m...
+    checkpoint holds 10 messages
+--- turn 15 | user: We don't drink alcohol, so skip the sake tours.
+    agent: Noted — there's still plenty to enjoy in Hakone and beyond, from tea ceremonies to matcha tastings and wagash...
+    checkpoint holds 6 messages
+    PRUNED 5 messages -> on_prune(namespace=('memories', 'asha')):
+        left window : human: I always book window seats, Meera takes the aisle.
+        left window : ai: Good to know — on the Shinkansen, seats on the E side (rows...
+        left window : human: My passport expires in March 2027. Is that a problem for a ...
+        left window : ai: Japan requires your passport to be valid for the duration o...
+        left window : human: Do Indians need a visa for Japan? We have never been.
+        memory      : NEW [bb3d69df] The user always books window seats when flying or on trains.  (importance=0.80, preference,travel)
+        memory      : NEW [b6c8c887] Meera always takes the aisle seat.  (importance=0.70, preference,travel,personal)
+        memory      : NEW [30359a01] The user's passport expires in March 2027.  (importance=0.90, personal,travel)
+        memory      : NEW [b499b04b] The user is Indian and holds an Indian passport. Meera is also likely Indian with an Indian passport.  (importance=0.90, personal,travel)
+        memory      : NEW [9bea4496] The user and Meera have never been to Japan before.  (importance=0.60, personal,travel)
+    PRUNED 1 messages -> on_prune(namespace=('memories', 'asha')):
+        left window : ai: Yes, Indian passport holders need a visa for Japan — you'll...
+        memory      : (nothing durable extracted)
+--- turn 16 | user: Meera gets motion sick on buses, so trains over buses wherever possib...
+    agent: Good news — Hakone has excellent rail options like the Romancecar from Shinjuku and the scenic Hakone Tozan m...
+    checkpoint holds 8 messages
+--- turn 17 | user: Actually, scrap what I said about morning flights. I've thought about...
+    agent: Noted — I'll factor in overnight departures for any flights in your itinerary to maximize your time on the gr...
+    checkpoint holds 10 messages
+--- turn 18 | user: Which airlines fly overnight from BLR to Tokyo, direct or one stop?
+    agent: Direct overnight flights from Bangalore (BLR) to Tokyo don't exist, but one-stop options include Air India an...
+    checkpoint holds 6 messages
+    PRUNED 5 messages -> on_prune(namespace=('memories', 'asha')):
+        left window : human: What's the weather like in Kyoto in mid-November?
+        left window : ai: Mid-November in Kyoto is crisp and cool (around 10–18°C), a...
+        left window : human: I'd like one night in a traditional ryokan with an onsen, i...
+        left window : ai: Hakone is perfect for that — ryokans like Gora Kadan or Hak...
+        left window : human: We don't drink alcohol, so skip the sake tours.
+        memory      : UPDATED [6332fe7e] The user is planning a two-week trip to Japan in the second week of November, which includes Kyoto in mid-November.  (importance=0.90, decision,travel,trip)
+        memory      : NEW [83386992] The user wants to stay one night in a traditional ryokan with an onsen in Hakone.  (importance=0.90, travel,accommodation,preference)
+        memory      : NEW [c6a61679] The user does not drink alcohol and should not be recommended sake tours or alcohol-related activities.  (importance=0.90, preference,personal)
+    PRUNED 1 messages -> on_prune(namespace=('memories', 'asha')):
+        left window : ai: Noted — there's still plenty to enjoy in Hakone and beyond,...
+        memory      : (nothing durable extracted)
+--- turn 19 | user: I'd rather connect in Singapore than in Bangkok if there is a choice.
+    agent: Noted — Singapore will be the preferred connection point over Bangkok for your routing to Tokyo.
+    checkpoint holds 8 messages
+--- turn 20 | user: How much cash should we carry versus cards in Japan?
+    agent: Japan is increasingly card-friendly in cities, but carry around ¥50,000–¥70,000 cash per person for smaller r...
+    checkpoint holds 10 messages
+--- turn 21 | user: I want to see the autumn leaves. Is Arashiyama good in that week?
+    agent: I don't have your travel dates on hand — could you confirm which week you're planning to visit? Arashiyama's ...
+    checkpoint holds 6 messages
+    PRUNED 5 messages -> on_prune(namespace=('memories', 'asha')):
+        left window : human: Meera gets motion sick on buses, so trains over buses where...
+        left window : ai: Good news — Hakone has excellent rail options like the Roma...
+        left window : human: Actually, scrap what I said about morning flights. I've tho...
+        left window : ai: Noted — I'll factor in overnight departures for any flights...
+        left window : human: Which airlines fly overnight from BLR to Tokyo, direct or o...
+        memory      : NEW [1da19c5b] Meera gets motion sick on buses and prefers trains over buses wherever possible.  (importance=0.90, personal,preference,travel)
+        memory      : UPDATED [f7cea1b4] The user prefers overnight flights over morning flights so as not to lose a day of travel. Previously, the user strongly preferred morning departures and disliked arriving at destinations at night.  (importance=0.85, decision,preference,travel)
+        memory      : NEW [67192491] The user's trip involves flying out of BLR (Bengaluru) to Tokyo.  (importance=0.80, travel,personal)
+    PRUNED 1 messages -> on_prune(namespace=('memories', 'asha')):
+        left window : ai: Direct overnight flights from Bangalore (BLR) to Tokyo don'...
+        memory      : (nothing durable extracted)
+--- turn 22 | user: Are there good vegetarian ramen places in Tokyo? Shojin ryori too.
+    agent: Yes — T's TanTan in Tokyo Station is a popular fully vegan ramen spot, and for shojin ryori, Daigo near Shimb...
+    checkpoint holds 8 messages
+--- turn 23 | user: We'd like to do a day trip to Nara for the deer park.
+    agent: Nara is an easy 45-minute express train ride from Kyoto or about 35 minutes from Osaka, making it a perfect d...
+    checkpoint holds 10 messages
+--- turn 24 | user: Can you suggest a rough day-by-day outline for the Kyoto part?
+    agent: I'd love to help, but I don't yet know how many days you have in Kyoto — once you share that, I can put toget...
+    checkpoint holds 6 messages
+    PRUNED 5 messages -> on_prune(namespace=('memories', 'asha')):
+        left window : human: I'd rather connect in Singapore than in Bangkok if there is...
+        left window : ai: Noted — Singapore will be the preferred connection point ov...
+        left window : human: How much cash should we carry versus cards in Japan?
+        left window : ai: Japan is increasingly card-friendly in cities, but carry ar...
+        left window : human: I want to see the autumn leaves. Is Arashiyama good in that...
+        memory      : NEW [d480e9c4] The user prefers to connect via Singapore rather than Bangkok when routing options are available.  (importance=0.70, preference,travel)
+        memory      : NEW [c6ad09b5] The user is travelling to Japan and wants to see autumn leaves.  (importance=0.80, travel,preference)
+        memory      : NEW [cec4a2e5] The user is interested in visiting Arashiyama during their Japan trip.  (importance=0.60, travel,preference)
+        memory      : UPDATED [c6ad09b5] The user is travelling to Japan in a week associated with autumn leaf season and wants to see autumn leaves.  (importance=0.80, decision,preference,travel)
+    PRUNED 1 messages -> on_prune(namespace=('memories', 'asha')):
+        left window : ai: I don't have your travel dates on hand — could you confirm ...
+        memory      : (nothing durable extracted)
+--- turn 25 | user: Is TeamLab in Tokyo worth booking ahead?
+    agent: Absolutely — TeamLab venues sell out weeks in advance, especially on weekends, so booking online as early as ...
+    checkpoint holds 8 messages
+--- turn 26 | user: What's a reasonable hotel budget per night in Tokyo for two, mid-rang...
+    agent: Expect to pay around ¥15,000–25,000 (roughly $100–170 USD) per night for a comfortable mid-range hotel in Tok...
+    checkpoint holds 10 messages
+--- turn 27 | user: Meera wants to try a tea ceremony in Kyoto. Where?
+    agent: Urasenke is a prestigious and authentic option, or for something more accessible and tourist-friendly, En tea...
+    checkpoint holds 6 messages
+    PRUNED 5 messages -> on_prune(namespace=('memories', 'asha')):
+        left window : human: Are there good vegetarian ramen places in Tokyo? Shojin ryo...
+        left window : ai: Yes — T's TanTan in Tokyo Station is a popular fully vegan ...
+        left window : human: We'd like to do a day trip to Nara for the deer park.
+        left window : ai: Nara is an easy 45-minute express train ride from Kyoto or ...
+        left window : human: Can you suggest a rough day-by-day outline for the Kyoto pa...
+        memory      : UPDATED [fbc4d3dc] The user and their travel companion are both vegetarian. The user is interested in vegetarian ramen and shojin ryori restaurants in Tokyo.  (importance=0.90, food,personal,preference,travel)
+        memory      : UPDATED [17c86b6a] The user plans to do a day trip to Nara to visit the deer park (previously noted as "considering" a day trip to Nara from Kyoto).  (importance=0.80, decision,travel)
+    PRUNED 1 messages -> on_prune(namespace=('memories', 'asha')):
+        left window : ai: I'd love to help, but I don't yet know how many days you ha...
+        memory      : UPDATED [cec4a2e5] The user plans to visit Arashiyama during their Kyoto trip (part of their Japan trip). Previously noted as an interest in visiting Arashiyama during their Japan trip more generally.  (importance=0.70, itinerary,preference,travel)
+        memory      : UPDATED [17c86b6a] The user plans to take a day trip to Nara during their Kyoto trip (confirmed plan; previously noted as "considering" a day trip to Nara from Kyoto, then updated to include visiting the deer park).  (importance=0.80, decision,itinerary,travel)
+--- turn 28 | user: How early should we reach Narita for the return flight?
+    agent: For an international departure from Narita, arriving 3 hours before your flight is a safe and standard recomm...
+    checkpoint holds 8 messages
+--- turn 29 | user: Any etiquette things we should know before we go?
+    agent: Key ones: remove shoes when entering homes or traditional spaces, don't tip (it can be considered rude), and ...
+    checkpoint holds 10 messages
+--- turn 30 | user: Great, that's enough for today. Thank you!
+    agent: You're welcome — have a wonderful trip to Japan!
+    checkpoint holds 6 messages
+    PRUNED 5 messages -> on_prune(namespace=('memories', 'asha')):
+        left window : human: Is TeamLab in Tokyo worth booking ahead?
+        left window : ai: Absolutely — TeamLab venues sell out weeks in advance, espe...
+        left window : human: What's a reasonable hotel budget per night in Tokyo for two...
+        left window : ai: Expect to pay around ¥15,000–25,000 (roughly $100–170 USD) ...
+        left window : human: Meera wants to try a tea ceremony in Kyoto. Where?
+        memory      : NEW [3b5f25f8] The user plans to visit TeamLab in Tokyo and intends to book tickets in advance.  (importance=0.70, travel,decision)
+        memory      : NEW [b3cdd028] The user's hotel budget for Tokyo is mid-range, approximately ¥15,000–25,000 per night for two people.  (importance=0.70, travel,preference,budget)
+        memory      : NEW [f3f84651] A person named Meera (travelling with the user) wants to try a tea ceremony in Kyoto.  (importance=0.70, travel,preference,personal)
+    PRUNED 1 messages -> on_prune(namespace=('memories', 'asha')):
+        left window : ai: Urasenke is a prestigious and authentic option, or for some...
+        memory      : (nothing durable extracted)
+
+=== after 30 turns ===
+messages produced        : 60
+messages in checkpoint   : 6
+messages delivered to on_prune (exactly once each): 54
+prune events             : 18
+memories in ('memories', 'asha'): 28
+wall time for 30 turns   : 128s
+empty extractions retried: 0
+
+=== everything the engine holds for this user ===
+  [6332fe7e] The user is planning a two-week trip to Japan in the second week of November, which includes Kyoto in mid-November.  (importance=0.90, decision,travel,trip)
+  [8fcc2b6b] The user's home airport is Bangalore (BLR).  (importance=0.90, personal,travel)
+  [fb435e19] The user is travelling with their sister Meera — a party of two adults.  (importance=0.80, personal,travel)
+  [a4430db6] The user is travelling to Japan as a pair (two people).  (importance=0.80, travel,personal)
+  [54ddf9fd] The user's Japan trip covers the Tokyo-Kyoto-Osaka route, and this is their first trip to Japan.  (importance=0.90, decision,destination,travel)
+  [2013cfbd] The user is considering purchasing a Japan Rail Pass for their trip and is specifically interested in whether the JR Pass is worth it for the Tokyo–Kyoto–Osaka route.  (importance=0.70, decision,travel)
+  [f7cea1b4] The user prefers overnight flights over morning flights so as not to lose a day of travel. Previously, the user strongly preferred morning departures and disliked arriving at destinations at night.  (importance=0.85, decision,preference,travel)
+  [d45dfb17] The user's total trip budget for two people is approximately 4 lakh rupees (roughly $2,400 USD), including flights.  (importance=0.90, budget,travel)
+  [fbc4d3dc] The user and their travel companion are both vegetarian. The user is interested in vegetarian ramen and shojin ryori restaurants in Tokyo.  (importance=0.90, food,personal,preference,travel)
+  [38598c5c] The user is allergic to peanuts.  (importance=1.00, health,food,personal)
+  [b14ec4ff] The user prefers temples and food markets over nightlife.  (importance=0.80, preference,travel)
+  [f8f439fa] The user's planned itinerary for their Japan trip is 3 nights in Tokyo, 3 nights in Kyoto, and 2 nights in Osaka (8 nights total).  (importance=0.85, travel,decision)
+  [17c86b6a] The user plans to take a day trip to Nara during their Kyoto trip (confirmed plan; previously noted as "considering" a day trip to Nara from Kyoto, then updated to include visiting the deer park).  (importance=0.80, decision,itinerary,travel)
+  [bb3d69df] The user always books window seats when flying or on trains.  (importance=0.80, preference,travel)
+  [b6c8c887] Meera always takes the aisle seat.  (importance=0.70, preference,travel,personal)
+  [30359a01] The user's passport expires in March 2027.  (importance=0.90, personal,travel)
+  [b499b04b] The user is Indian and holds an Indian passport. Meera is also likely Indian with an Indian passport.  (importance=0.90, personal,travel)
+  [9bea4496] The user and Meera have never been to Japan before.  (importance=0.60, personal,travel)
+  [83386992] The user wants to stay one night in a traditional ryokan with an onsen in Hakone.  (importance=0.90, travel,accommodation,preference)
+  [c6a61679] The user does not drink alcohol and should not be recommended sake tours or alcohol-related activities.  (importance=0.90, preference,personal)
+  [1da19c5b] Meera gets motion sick on buses and prefers trains over buses wherever possible.  (importance=0.90, personal,preference,travel)
+  [67192491] The user's trip involves flying out of BLR (Bengaluru) to Tokyo.  (importance=0.80, travel,personal)
+  [d480e9c4] The user prefers to connect via Singapore rather than Bangkok when routing options are available.  (importance=0.70, preference,travel)
+  [c6ad09b5] The user is travelling to Japan in a week associated with autumn leaf season and wants to see autumn leaves.  (importance=0.80, decision,preference,travel)
+  [cec4a2e5] The user plans to visit Arashiyama during their Kyoto trip (part of their Japan trip). Previously noted as an interest in visiting Arashiyama during their Japan trip more generally.  (importance=0.70, itinerary,preference,travel)
+  [3b5f25f8] The user plans to visit TeamLab in Tokyo and intends to book tickets in advance.  (importance=0.70, travel,decision)
+  [b3cdd028] The user's hotel budget for Tokyo is mid-range, approximately ¥15,000–25,000 per night for two people.  (importance=0.70, travel,preference,budget)
+  [f3f84651] A person named Meera (travelling with the user) wants to try a tea ceremony in Kyoto.  (importance=0.70, travel,preference,personal)
+
+=== fresh thread, same memory_namespace ===
+thread B: followup-497ab6a4   (new saver, empty checkpoint; only the namespace is shared)
+
+user : I'm back. Remind me: what flight timing did I settle on, and who is coming with me?
+recall(query="I'm back. Remind me: what flight timing did I settle on, and who is coming with me?", limit=8):
+  score=0.627 sim=0.314  The user prefers overnight flights over morning flights so as not to lose a day of travel. Previously, the user strongly preferred morning departures and disliked arriving at destinations at night.
+  score=0.582 sim=0.244  The user's trip involves flying out of BLR (Bengaluru) to Tokyo.
+  score=0.573 sim=0.187  The user's Japan trip covers the Tokyo-Kyoto-Osaka route, and this is their first trip to Japan.
+  score=0.570 sim=0.180  The user's home airport is Bangalore (BLR).
+  score=0.561 sim=0.162  The user is Indian and holds an Indian passport. Meera is also likely Indian with an Indian passport.
+  score=0.557 sim=0.194  The user is travelling with their sister Meera — a party of two adults.
+  score=0.551 sim=0.181  The user always books window seats when flying or on trains.
+  score=0.550 sim=0.139  Meera gets motion sick on buses and prefers trains over buses wherever possible.
+agent: Your records show a bit of a conflict on flight timing — you've expressed both a preference for overnight flights and a preference for morning departures, so it's worth double-checking which you actually settled on. You're travelling with your sister Meera.
+
+user : Also, when does my passport expire, and which seat should you book for me?
+recall(query='Also, when does my passport expire, and which seat should you book for me?', limit=8):
+  score=0.762 sim=0.564  The user's passport expires in March 2027.
+  score=0.594 sim=0.269  The user always books window seats when flying or on trains.
+  score=0.551 sim=0.161  The user prefers overnight flights over morning flights so as not to lose a day of travel. Previously, the user strongly preferred morning departures and disliked arriving at destinations at night.
+  score=0.548 sim=0.135  The user is Indian and holds an Indian passport. Meera is also likely Indian with an Indian passport.
+  score=0.541 sim=0.201  The user plans to visit TeamLab in Tokyo and intends to book tickets in advance.
+  score=0.536 sim=0.113  The user's Japan trip covers the Tokyo-Kyoto-Osaka route, and this is their first trip to Japan.
+  score=0.535 sim=0.151  The user is travelling to Japan as a pair (two people).
+  score=0.535 sim=0.110  The user's home airport is Bangalore (BLR).
+agent: Your passport expires in March 2027, and you always prefer a window seat.
+
+=== sanity ===
+thread B checkpoint holds 4 messages (its own two turns); thread A's saver has no entry for thread B: True
