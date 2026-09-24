@@ -1,0 +1,14 @@
+[project]
+name = "missing-link-crewai"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "agentstate-reducer>=0.5.0",
+    "crewai>=1.15.22",
+    "crewai-memory-core>=0.1.0",
+    "crewai-persistence-sql>=0.2.1",
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

@@ -1,1 +1,0 @@
-CI to be added once the first two folders land: one job per folder running `uv sync && uv run pytest -q`; cloud-backed tests skip without credentials.

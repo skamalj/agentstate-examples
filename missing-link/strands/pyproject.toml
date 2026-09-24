@@ -1,0 +1,13 @@
+[project]
+name = "missing-link-strands"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "agentstate-reducer>=0.5.0",
+    "pytest>=9.1.1",
+    "strands-agents>=1.57.0",
+    "strands-session-sql>=0.2.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
