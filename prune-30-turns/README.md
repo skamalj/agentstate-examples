@@ -2,6 +2,8 @@
 
 Code for the post *We ran the pruner for 30 turns. Here is what the agent remembered* (`blog.md` here).
 
+Read the post: <https://medium.com/@skamalj_11034/we-ran-the-pruner-for-30-turns-here-is-what-the-agent-remembered-36b231a81983>
+
 One user, one 30-turn travel-planning conversation, a bounded LangGraph checkpoint
 (`max_messages=10`, `min_messages=6`) and long-term memory built from the turns that
 leave the window. A fresh thread then recalls facts that only ever existed in pruned turns.

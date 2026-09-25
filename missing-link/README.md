@@ -1,6 +1,8 @@
 # missing-link
 
-Runnable code behind the post **"Agent Memory: Connect the Checkpointer to the Store"** (`blog.md` in this folder). Every snippet in the post is cut from a script here, and every script has a test.
+Runnable code behind the post **"Agent State to Long-Term Memory: The Missing Hook"** (`blog.md` in this folder). Every snippet in the post is cut from a script here, and every script has a test.
+
+Read the post: <https://medium.com/@skamalj_11034/agent-state-to-long-term-memory-the-missing-hook-f7f659f2434c>
 
 One uv project per framework, because the four frameworks do not share a dependency set. Every example runs offline: scripted models, deterministic embedders, in-memory or SQLite stores. No API keys, no databases. Each `main.py` prints the short-term window and the long-term memory side by side; each test asserts that the turns which left the window reached the memory side, once each.
 
