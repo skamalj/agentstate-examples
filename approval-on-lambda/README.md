@@ -1,6 +1,7 @@
 # approval-on-lambda
 
-Code for the post *Human-in-the-loop LangGraph on AWS Lambda* (`blog.md` here).
+Code for the post *Externalize agent interrupts for HITL* (`blog.md` here) — human-in-the-loop
+for LangGraph on AWS Lambda.
 
 A refund agent parks on a question for finance, the process dies, and the run continues
 days later in a different process — with no server and no state in the application code.
