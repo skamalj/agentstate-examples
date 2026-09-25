@@ -3,8 +3,6 @@
 Code for the post *Externalize agent interrupts for HITL* (`blog.md` here) — human-in-the-loop
 for LangGraph on AWS Lambda.
 
-Read the post: <https://medium.com/@skamalj_11034/externalize-agent-interrupts-for-hitl-cb7566eff6a7>
-
 A refund agent parks on a question for finance, the process dies, and the run continues
 days later in a different process — with no server and no state in the application code.
 Two packages do it, each doing one thing and neither knowing about the other:
