@@ -1,4 +1,4 @@
-# Agent Memory: Connect the Checkpointer to the Store
+# Agent State to Long-Term Memory: The Missing Hook
 
 *Every agent framework has a checkpointer and a store. None of them connects the two.*
 
