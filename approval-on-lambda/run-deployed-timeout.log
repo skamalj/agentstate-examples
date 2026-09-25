@@ -1,0 +1,51 @@
+run function      : approval-on-lambda-RunC4A32B5F-fpGNXJ4TFRqq
+scheduler function: approval-on-lambda-TimeoutSchedulerE985E26C-PzHrtc4rEkzR
+order             : order-5ed76d
+
+--- the customer asks, and nobody is going to answer ---
+question arrived after 2.4s
+question_id : 95e310aa4663f0ec685aa1575fef07b4
+expires_at  : 2026-09-25T05:39:55Z
+default     : {"action": "reject", "reason": "no finance response within PT2M"}
+
+--- what the consumer created, before it fires ---
+{
+  "Name": "refund-timeout-95e310aa4663f0ec685aa157",
+  "ScheduleExpression": "at(2026-09-25T05:39:55)",
+  "ScheduleExpressionTimezone": "UTC",
+  "ActionAfterCompletion": "DELETE",
+  "Target": {
+    "Arn": "...:approval-on-lambda-Answers9615456C-yYSxBQysjrGE.fifo",
+    "SqsParameters": {
+      "MessageGroupId": "order-5ed76d"
+    },
+    "Input": {
+      "thread_id": "order-5ed76d",
+      "question_id": "95e310aa4663f0ec685aa1575fef07b4",
+      "answer": {
+        "action": "reject",
+        "reason": "no finance response within PT2M"
+      }
+    }
+  }
+}
+
+refunds recorded while it waits: 0
+open rows for this thread       : 1
+
+--- waiting 211s for the deadline; no process of ours is running ---
+the schedule fired and deleted itself (ActionAfterCompletion=DELETE)
+the agent resumed at 05:40:13Z, 18s after expires_at
+(EventBridge Scheduler is minute-granular; that gap is delivery, not drift)
+
+refunds recorded after the deadline: 0
+
+--- a human approves, too late ---
+refunds recorded after the late approval: 0
+nothing ran, for the same reason a duplicate approval runs nothing:
+the thread has already moved past the question
+
+undelivered schedules on the schedule dead-letter queue: 0
+
+thread_id = order-5ed76d
+question_id = 95e310aa4663f0ec685aa1575fef07b4

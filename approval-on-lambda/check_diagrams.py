@@ -52,7 +52,10 @@ if len(reports) == 4:
     ]
 RULES += [
     ("four-invocations", "GB-seconds", grab(r"billed ([\d.]+) GB-seconds"), False),
-    ("whole-flow", "no-op resume ms", (lambda v: v and v + " ms")(grab(r"\*\*(\d+) milliseconds each\*\*")), False),
+    ("four-invocations", "no-op billed ms", (lambda m: m and f"{m.group(1)} and {m.group(2)} ms")(re.search(r"\*\*(\d+) and (\d+) milliseconds\*\*", blog)), False),
+    # the silent failure: the property that fixes it and the evidence line the run prints
+    ("timeout-silent-failure", "queue property", grab(r"`(content_based_deduplication=True)`"), False),
+    ("timeout-silent-failure", "schedule DLQ count", (lambda v: v and f"undelivered schedules on the schedule dead-letter queue: {v}")(grab(r"undelivered schedules on the schedule dead-letter queue: (\d+)")), True),
     # act 3: the envelope
     ("envelope", "event_id", grab(r'"event_id": "([A-Z0-9]+)"'), False),
     ("envelope", "thread_id", grab(r'"thread_id": "(order-[0-9a-f-]+)",\n  "question_id"'), False),
@@ -64,11 +67,15 @@ RULES += [
     ("parked-thread", "items", grab(r"Query on PK='[^']+': (\d+) items"), True),
     ("parked-thread", "__interrupt__ bytes", grab(r"channel='__interrupt__', (\d+) bytes"), True),
     ("parked-thread", "items after resume", grab(r"items after the resume: (\d+) \(was"), False),
-    # two clocks
-    ("two-clocks", "ttl (utc)", grab(r'"checkpoint ttl \(utc\)": "([^"]+)"'), True),
-    ("two-clocks", "expires_at (short)", grab(r'"envelope expires_at": "2026-([^"]+)"'), True),
-    ("two-clocks", "outlives by", grab(r"outlives the thread by ([^\n]+)"), False),
-    ("two-clocks", "ttl_seconds", grab(r"DynamoDBSaver\(ttl_seconds=(\d+)\)"), True),
+    # the deadline: the schedule a consumer builds out of expires_at.
+    # These were registered before the diagram was drawn and skipped until it
+    # landed, which is the behaviour the docstring describes.
+    ("timeout-sequence", "schedule name", grab(r'"Name": "(refund-timeout-[0-9a-f]+)"'), False),
+    ("timeout-sequence", "at() expression", grab(r'"ScheduleExpression": "(at\([^"]+\))"'), True),
+    ("timeout-sequence", "self-deleting", grab(r'"ActionAfterCompletion": "(DELETE)"'), True),
+    ("timeout-sequence", "expires_at", grab(r"expires_at  : ([\dTZ:-]+)"), True),
+    ("timeout-sequence", "refunds after deadline", grab(r"refunds recorded after the deadline: (\d+)"), False),
+    ("timeout-sequence", "refunds after late approval", grab(r"refunds recorded after the late approval: (\d+)"), False),
 ]
 for size in re.findall(r"type='msgpack', (\d+) bytes", blog):
     RULES.append(("parked-thread", "checkpoint bytes", f"{size} bytes", False))
@@ -79,7 +86,7 @@ for frag in re.findall(r"checkpoint SK='[0-9a-f]+-([0-9a-f]{4})-", blog):
 
 failed = checked = 0
 for diagram, label, value, in_alt in RULES:
-    if value is None or diagram not in svgs:
+    if not value or diagram not in svgs:  # None or '' (an unmatched optional group) both mean: nothing to check
         print(f"SKIP {diagram:18} {label:24} (pattern or diagram not present)")
         continue
     checked += 1

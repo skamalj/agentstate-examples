@@ -28,7 +28,6 @@ export AWS_PROFILE=<your sso profile> AWS_DEFAULT_REGION=ap-south-1
 uv run python act1_vanishes.py   | tee run-act1.log        # InMemorySaver: the question is gone
 uv run python act2_survives.py   | tee run-act2.log        # DynamoDBSaver: park, kill, resume
 uv run python act3_asks.py       | tee run-act3.log        # @wait + publish_interrupts: queue + row
-uv run python two_clocks.py      | tee run-two-clocks.log  # expires_at vs ttl
 uv run pytest -q
 ```
 
@@ -48,7 +47,7 @@ AWS_ENDPOINT_URL_DYNAMODB= AWS_ENDPOINT_URL_SQS= uv run python act2_survives.py
 
 Act 1 needs neither: `InMemorySaver` is the whole point of it.
 
-`act2`, `act3` and `two_clocks` run the graph in **child interpreters**, so "the process
+`act2` and `act3` run the graph in **child interpreters**, so "the process
 died" is a process exit and not a comment. The parent plays the consumer: it reads the
 envelope off the queue and sends the answer back.
 
@@ -60,10 +59,10 @@ envelope off the queue and sends the answer back.
 | `act1_vanishes.py` | `InMemorySaver`, park, new interpreter, the question is gone |
 | `act2_survives.py` | `DynamoDBSaver`, park, kill, resume; prints the DynamoDB items in between |
 | `act3_asks.py` | `publish_interrupts` to a FIFO queue and an approvals row; answer, duplicate, late answer |
-| `two_clocks.py` | `WaitPolicy(timeout="P3D")` against `DynamoDBSaver(ttl_seconds=86400)` |
-| `handler.py` | the Lambda host: one graph, one `if`, one publish |
-| `cdk/` | two FIFO queues, one Lambda, three tables |
-| `deployed_run.py` | drives the deployed stack from a laptop and counts the refunds |
+| `handler.py` | the Lambda host: one graph, one `if`, one publish to four announcers |
+| `timeout_scheduler.py` | the consumer that turns `expires_at` into a one-shot EventBridge schedule |
+| `cdk/` | three FIFO queues, two Lambdas, three tables, a schedule dead-letter queue |
+| `deployed_run.py` | drives the deployed stack: the approve path, and `--timeout` for the deadline |
 | `local_aws.py` | the `moto_server` that stands in for DynamoDB and SQS locally |
 | `tests/` | the post's claims as assertions |
 | `images/` | the post's diagrams, SVG source and 2x PNG; `check_diagrams.py` is the gate that keeps their numbers honest |
@@ -83,11 +82,13 @@ folder as the argument and it runs whichever rules apply there, and that post ad
 uv pip install --target build/lambda --python-platform x86_64-manylinux_2_28 \
   --python-version 3.12 --no-installer-metadata --only-binary=:all: \
   "agent-wait[langgraph,aws]==0.7.0" "langgraph-dynamodb-checkpoint==0.5.0" "langchain>=1.0" langchain-aws
-cp graph.py handler.py build/lambda/
+cp graph.py handler.py timeout_scheduler.py build/lambda/
 
 cd cdk
-npx --yes aws-cdk@2 deploy --require-approval never -c bundlePath=../build/lambda --outputs-file outputs.json
-cd .. && uv run python deployed_run.py | tee run-deployed.log
+# PT2M so a deadline can actually be watched to pass; P3D is the real policy
+npx --yes aws-cdk@2 deploy --require-approval never -c bundlePath=../build/lambda   -c waitTimeout=PT2M --outputs-file outputs.json
+cd .. && uv run python deployed_run.py --timeout | tee run-deployed-timeout.log
+uv run python deployed_run.py | tee run-deployed.log
 
 cd cdk && npx --yes aws-cdk@2 destroy --force      # tear it all down
 ```
@@ -103,6 +104,14 @@ The Lambda role, as the stack writes it:
 - `sqs:SendMessage` on the questions queue, and `ReceiveMessage / DeleteMessage /
   GetQueueAttributes` on the answers queue, from the event source
 - `bedrock:InvokeModel` on `*` — narrow this to your inference profile
+
+The timeout scheduler's role is separate and smaller:
+
+- `scheduler:CreateSchedule / GetSchedule / DeleteSchedule`, scoped to `refund-timeout-*`
+- `iam:PassRole` on the one role EventBridge Scheduler assumes, with an
+  `iam:PassedToService` condition — the permission easiest to leave wide open and worst to
+- that assumed role can `sqs:SendMessage` to the answers queue and its dead-letter queue,
+  and nothing else
 
 One thing to know: `DynamoDBSaver` creates its table if it is missing, which is why acts 2
 and 3 need no setup. A role that cannot call `CreateTable` needs the table to exist
@@ -135,52 +144,73 @@ All of this ran on 2026-09-24, from Windows 11 against `ap-south-1`, against the
 | 1, `InMemorySaver` | `run-act1.log` | parked on 1 question; the fresh interpreter's resume produced a 1-message thread and a greeting; refunds issued: 0 |
 | 2, `DynamoDBSaver` | `run-act2.log` | 8 items on `PK=order-4471-a2d5f9f5` while parked — 3 checkpoints (384 / 700 / 2172 bytes) and 5 pending writes, the last being `channel='__interrupt__'`, 496 bytes; resumed in a different pid; 14 items afterwards |
 | 3, `@wait` + `publish_interrupts` | `run-act3.log` | 1 envelope on the questions queue, 1 row in the approvals table; approve → refund; the same answer again and a later `reject` → nothing; DynamoDB refund counter across all four host runs: **1** |
-| two clocks | `run-two-clocks.log` | `expires_at` 2026-09-27T18:19:38Z against a checkpoint `ttl` of 2026-09-25T18:19:37Z — the question outlives the thread by 2 days; after the items are deleted the approval produces a greeting and a refund counter of **0** |
 
 Each act runs the graph in child interpreters; the pids in the logs are different processes.
-All four logs were regenerated after the approval-limit guard was added to `issue_refund`,
-so they match the code in this folder exactly.
 
 ### Deployed (`ap-south-1`, tagged `project=agent-wait-demo`, destroyed after the run)
 
-Stack `approval-on-lambda`: 2 FIFO queues + 1 FIFO DLQ, 1 Lambda (Python 3.12, 1024 MB,
-120 s timeout, 47.4 MB zipped bundle), 3 DynamoDB tables (`PAY_PER_REQUEST`). Bundle built
-with `uv pip install --target` for `x86_64-manylinux_2_28`; no docker anywhere.
+Stack: 3 FIFO queues + 1 FIFO DLQ + 1 standard schedule-DLQ, 2 Lambdas (the agent at
+1024 MB, the timeout scheduler at 256 MB), 3 DynamoDB tables, and an IAM role EventBridge
+Scheduler assumes. Deployed with `-c waitTimeout=PT2M` so a deadline can be watched to
+pass. Bundle 47.4 MB zipped, built with `uv pip install --target` for
+`x86_64-manylinux_2_28`; no docker anywhere.
 
-`run-deployed.log` is the driver's output, `run-deployed-lambda.log` the CloudWatch lines
-(request ids stripped, no account ids). One approval, thread `order-fc56ea`:
+Both scenarios below ran against the same deploy, so the figures are comparable.
 
-| invocation | what it was | duration | billed | init |
-|---|---|---|---|---|
-| 1 | the customer's message; parks, publishes | 1642.21 ms | 5718 ms | 4075.36 ms |
-| 2 | finance approves; the refund runs | 1697.55 ms | 1698 ms | warm |
-| 3 | the same answer again | 15.31 ms | 16 ms | warm |
-| 4 | a `reject` after the fact | 14.45 ms | 15 ms | warm |
+**The approve path** (`run-deployed.log`, thread `order-d07f6e`):
 
-Max memory used: 178–179 MB of 1024. The question appeared on the questions queue 7.1 s
-after the customer's message was sent (SQS delivery + cold start + model call). The
-DynamoDB refund counter for the order was **1** after all four.
+| invocation | what it was | duration | billed |
+|---|---|---|---|
+| 1 | the customer's message; parks, publishes | 1706.21 ms | 1707 ms |
+| 2 | finance approves; the refund runs | 1864.71 ms | 1865 ms |
+| 3 | the same answer again | 31.37 ms | 32 ms |
+| 4 | a `reject` after the fact | 16.29 ms | 17 ms |
 
-`refunds_by_this_container` reads `["order-fc56ea"]` on invocations 3 and 4 because it is
-module state in a reused container — nothing ran in either. The DynamoDB counter is the
-one that means anything.
+181–182 MB of 1024, and no init duration on any of them: the timeout run went first on
+the same function, so the container was warm. Refund counter **1** after all four —
+which also confirms that enabling content-based deduplication (below) did not start
+swallowing the duplicate answers, since every sender here passes an explicit
+deduplication id.
 
-The approvals row for the thread is still `status="open"` after the refund has run, on a
-table that has seen exactly one question. `DynamoDbAnnounce` writes the row and never
-touches it again; closing it is the host's job and this host does not do it.
+**The deadline path** (`run-deployed-timeout.log`, thread `order-5ed76d`): the question
+was published at 05:37:55 with `expires_at` 05:39:55; the scheduler Lambda created
+`refund-timeout-95e310aa4663f0ec685aa157` (one-shot, `ActionAfterCompletion=DELETE`);
+the schedule fired and deleted itself; the agent resumed at **05:40:13Z, 18 s after
+`expires_at`**. Refund counter **0** after the deadline, still **0** after a late human
+approval, and **0** messages on the schedule dead-letter queue.
 
-Total: 7.4 GB-seconds of Lambda across four requests, ~20 DynamoDB writes, 8 SQS messages,
-2 Bedrock calls. The bundle that ran was built from the `graph.py` and `handler.py` in this
-folder. Destroyed with `npx aws-cdk destroy --force` after the run; nothing is left
-running.
+Total: 3.6 GB-seconds across the approve path's four requests, plus the deadline path's
+three agent invocations and one scheduler invocation. `run-deployed-lambda.log` holds the
+agent's `REPORT` lines for both scenarios; the scheduler function's own were not captured
+before its log group was deleted, so no duration is quoted for it. No invocation in this
+deploy shows an `Init Duration` — the function was warm throughout — so there is no
+cold-start figure here either.
+
+#### The bug this run found
+
+The first deployed attempt did not work, and the failure mode is worth the space. A FIFO
+queue rejects a `SendMessage` that carries no `MessageDeduplicationId` unless
+content-based deduplication is enabled, and EventBridge Scheduler's `SqsParameters` can
+set `MessageGroupId` and nothing else. So Scheduler's delivery to `answers.fifo` was
+refused — while the schedule itself completed and deleted itself, because from
+Scheduler's side the invocation had been made. The result was a deadline that silently
+never arrived, on a question that would have waited for ever, with the schedule already
+tidied away.
+
+The fix is `content_based_deduplication=True` on the answers queue. What makes it
+visible, rather than fixed-by-luck next time, is a `DeadLetterConfig` on the schedule's
+*target*: the answers queue's own DLQ could never have caught this, because a DLQ catches
+messages that arrived and failed to process, and this was a send rejected before anything
+entered the queue.
 
 ### Tests
+
 
 `uv run pytest -q`, against `moto_server` and real Bedrock (`run-pytest.log`):
 
 ```text
-..........                                                               [100%]
-10 passed in 68.31s (0:01:08)
+................                                                         [100%]
+16 passed in 109.91s (0:01:49)
 ```
 
 | test | asserts |
@@ -195,6 +225,21 @@ running.
 | `test_under_the_limit_nothing_is_asked` | a small refund runs without any question |
 | `test_ttl_seconds_stamps_every_parked_item` | every item has `ttl`; table TTL is `ENABLED` on `ttl` |
 | `test_the_limit_is_code_not_a_prompt` | `issue_refund` called directly with 41,000 refuses and points at `escalate_refund`; no refund, counter stays 0; the same tool still pays 1,800 |
+
+`tests/test_timeout_scheduler.py` is the deadline consumer, and it needs **no AWS account
+at all** — moto's EventBridge Scheduler backend with dummy credentials:
+
+| test | asserts |
+|---|---|
+| `test_it_schedules_the_default_at_the_deadline` | `at()` matches `expires_at`, target arn/role, `MessageGroupId`, `ActionAfterCompletion=DELETE`, and an `Input` that is exactly `{thread_id, question_id, answer=default}` |
+| `test_a_republished_envelope_does_not_create_a_second_timer` | the `question_id`-derived name means one question gets one timer |
+| `test_a_policy_with_no_timeout_is_skipped` | `expires_at: null` creates nothing |
+| `test_a_deadline_already_past_is_sent_now` | a stale envelope sends the default immediately instead of scheduling into the past |
+| `test_the_schedule_name_fits_the_limit` | the truncated name stays inside Scheduler's 64 characters |
+| `test_without_a_dead_letter_queue_it_still_schedules_and_says_so` | `DeadLetterConfig` is optional: a missing arn neither crashes the consumer nor disappears quietly — the schedule is created and a warning is logged |
+
+What these cannot cover is the schedule *firing* — moto does not run schedules. That half
+is proved only by `run-deployed-timeout.log`.
 
 Each test is a real model call and real interpreters, so the wording in your run differs.
 

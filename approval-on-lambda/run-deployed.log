@@ -1,19 +1,19 @@
-function      : approval-on-lambda-RunC4A32B5F-j1w55bGr3wLF
-answers queue : approval-on-lambda-Answers9615456C-SGzXQslHqvcE.fifo
-questions queue: approval-on-lambda-Questions00801713-H9Kya4fxB995.fifo
-order         : order-fc56ea
+function      : approval-on-lambda-RunC4A32B5F-fpGNXJ4TFRqq
+answers queue : approval-on-lambda-Answers9615456C-yYSxBQysjrGE.fifo
+questions queue: approval-on-lambda-Questions00801713-sKT8TQAwJVoy.fifo
+order         : order-d07f6e
 
 --- the customer's message is on the queue; nothing of ours is running ---
-question arrived after 7.1s
+question arrived after 2.5s
 {
   "type": "wait.created",
-  "event_id": "01M3AB0ZQQFX7WV7HYN5H29SFW",
-  "thread_id": "order-fc56ea",
-  "question_id": "69c801fd266478c44601a51789d2417b",
+  "event_id": "01M3BH9SM4T3KFXH6KK9V6C2X8",
+  "thread_id": "order-d07f6e",
+  "question_id": "55e4d599d8dab3ac351f504b7f35a3e7",
   "question": {
     "function": "escalate_refund",
     "args": {
-      "order_id": "order-fc56ea",
+      "order_id": "order-d07f6e",
       "amount": 41000
     }
   },
@@ -21,10 +21,10 @@ question arrived after 7.1s
     "approve",
     "reject"
   ],
-  "expires_at": "2026-09-27T18:32:11Z",
+  "expires_at": "2026-09-25T05:43:06Z",
   "default": {
     "action": "reject",
-    "reason": "no finance response within P3D"
+    "reason": "no finance response within PT2M"
   },
   "answer_ttl": null,
   "source": {
@@ -32,8 +32,8 @@ question arrived after 7.1s
   },
   "reply_to": null,
   "reply_with": {
-    "thread_id": "order-fc56ea",
-    "question_id": "69c801fd266478c44601a51789d2417b",
+    "thread_id": "order-d07f6e",
+    "question_id": "55e4d599d8dab3ac351f504b7f35a3e7",
     "answer": null
   },
   "correlation": null,
@@ -42,7 +42,7 @@ question arrived after 7.1s
   }
 }
 
-open questions in the approvals table (GSI by_status): 1
+open questions in the approvals table (GSI by_status): 4
 refunds recorded so far: 0
 
 --- finance approves, three days later as far as anything here knows ---
@@ -53,5 +53,5 @@ rows for this thread still status=open after the refund: 1
 refunds recorded after three answers in total: 1
 further questions published for this thread: 0
 
-thread_id = order-fc56ea
-question_id = 69c801fd266478c44601a51789d2417b
+thread_id = order-d07f6e
+question_id = 55e4d599d8dab3ac351f504b7f35a3e7

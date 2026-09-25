@@ -11,7 +11,8 @@ DynamoDB, which is the whole point.
 Environment:
     REFUND_CHECKPOINT_TABLE   the checkpointer's table (pre-created by the stack)
     REFUND_APPROVALS_TABLE    where DynamoDbAnnounce writes the open question
-    REFUND_QUESTIONS_QUEUE    the FIFO queue questions go out on
+    REFUND_QUESTIONS_QUEUE    the FIFO queue questions go out on, for whoever answers
+    REFUND_TIMEOUTS_QUEUE     the same envelope, for the scheduler that enforces the deadline
     REFUND_SIDE_EFFECT_TABLE  the counter graph.py bumps when the refund actually runs
 """
 
@@ -44,11 +45,13 @@ AGENT = refund.build_agent(
     DynamoDBSaver(os.environ["REFUND_CHECKPOINT_TABLE"], ttl_seconds=int(_ttl) if _ttl else None)
 )
 
-# One call, two destinations: the queue that wakes somebody, and a row an operator can
-# query for "what is open right now". The library writes to both and reads from neither.
+# One call, four destinations, and they are not variations on each other: a log line, the
+# queue a person reads, the queue a *scheduler* reads, and a row an operator can query for
+# "what is open right now". The library writes to all four and reads from none of them.
 ANNOUNCE = [
     LogAnnounce(),
     SqsAnnounce(os.environ["REFUND_QUESTIONS_QUEUE"]),
+    SqsAnnounce(os.environ["REFUND_TIMEOUTS_QUEUE"]),
     DynamoDbAnnounce(os.environ["REFUND_APPROVALS_TABLE"]),
 ]
 

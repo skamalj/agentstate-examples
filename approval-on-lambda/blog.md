@@ -6,7 +6,7 @@ Every human-in-the-loop tutorial I have read assumes a process that is still run
 
 A refund over the limit needs finance. Finance takes days. Lambda gives you fifteen minutes.
 
-This post is four runnable acts, in order of what breaks. Two packages do the work, each doing one thing, and neither one imports the other: `langgraph-dynamodb-checkpoint` 0.5.0 makes the parked thread a row, and `agent-wait` 0.7.0 makes the interrupt a message. Everything quoted below is pasted from a real run; the scripts, the logs and the tests are at [github.com/skamalj/agentstate-examples/tree/main/approval-on-lambda](https://github.com/skamalj/agentstate-examples/tree/main/approval-on-lambda).
+This post is four runnable acts and a deadline, in order of what breaks. Two packages do the work, each doing one thing, and neither one imports the other: `langgraph-dynamodb-checkpoint` 0.5.0 makes the parked thread a row, and `agent-wait` 0.7.0 makes the interrupt a message. Everything quoted below is pasted from a real run; the scripts, the logs and the tests are at [github.com/skamalj/agentstate-examples/tree/main/approval-on-lambda](https://github.com/skamalj/agentstate-examples/tree/main/approval-on-lambda).
 
 ![End to end: a start message on answers.fifo triggers invocation 1; the agent calls escalate_refund, @wait parks it, the run ends with __interrupt__. DynamoDBSaver writes the parked thread (8 items) and publish_interrupts puts the envelope on questions.fifo and an open row in the approvals table. Then nothing runs for days. Finance reads the envelope, copies reply_with, sets the answer and sends it to answers.fifo; invocation 2 loads the thread back from DynamoDB, resumes, and issues the refund once.](images/whole-flow.png)
 
@@ -37,7 +37,7 @@ def issue_refund(order_id: str, amount: int) -> str:
 
 The model picks the tool; the tool enforces the limit. A model that picks wrong gets the refusal back as a tool result and calls `escalate_refund` instead — a routing mistake, self-correcting, costing one turn. A model that picks wrong against a prompt-only limit moves ₹41,000 without asking anyone, which is not a mistake, it is an incident.
 
-That is the same distinction as the two clocks further down, one layer up: a published intention is not an enforced one. Every rule you would be unhappy to see broken has to live somewhere you control — the tool body, or a router node in front of it. The prompt is a hint about which door to knock on, not the lock.
+Hold on to that distinction, because the post makes it twice: a published intention is not an enforced one. Every rule you would be unhappy to see broken has to live somewhere you control — the tool body, or a router node in front of it. The prompt is a hint about which door to knock on, not the lock. The deadline in act 4 is the same argument about a different field, and there you can watch the enforcement happen.
 
 `FINANCE` is what the asker declares about the question. Every field of it gets published and none of it is enforced; that turns out to matter a great deal, and there is a section on it below.
 
@@ -110,9 +110,9 @@ Query on PK='order-4471-a2d5f9f5': 8 items
   writes     SK='...-0bf9-...$4751462b-...$-3'           channel='__interrupt__', 496 bytes
 ```
 
-Three checkpoints, one per super-step, and five pending writes hanging off them. The tree below draws the parentage those sort keys encode; it is one table, and there is no GSI anywhere in it.
+Three checkpoints, one per super-step, and five pending writes hanging off them — the tree below draws the parentage those sort keys encode, on one table with no GSI anywhere in it.
 
-The pending writes are the part that matters. The last leaf on that tree, `channel='__interrupt__'`, 496 bytes, *is* the parked question. A checkpointer that only wrote checkpoints would lose it, and the resume from a cold process would re-run the node from a state that does not know it ever asked. The package loads them back into `CheckpointTuple.pending_writes`, which is what makes cross-process interrupt and resume work at all; its author reports it passing LangGraph's conformance suite at `FULL` against a live table. Every read in the resume path is a `ConsistentRead`.
+The pending writes are the part that matters. The last leaf on that tree, `channel='__interrupt__'`, 496 bytes, *is* the parked question. A checkpointer that wrote only checkpoints would lose it, and a resume from a cold process would re-run the node from a state that does not know it ever asked. The package loads them back into `CheckpointTuple.pending_writes`, which is what makes cross-process interrupt and resume work at all; its author reports it passing LangGraph's conformance suite at `FULL` against a live table. Every read in the resume path is a `ConsistentRead`.
 
 ![The parked thread as eight DynamoDB items under PK order-4471-a2d5f9f5: three checkpoints, one per super-step (384, 700, 2172 bytes), each with its pending writes as child items keyed <checkpoint_id>$<task_id>$<index>. The last write, channel __interrupt__, 496 bytes, is the parked question. On resume the five writes are loaded into CheckpointTuple.pending_writes.](images/parked-thread.png)
 
@@ -208,67 +208,11 @@ refunds recorded in DynamoDB for order-4471, across all four runs: 1
 
 Nothing ran either time. A `Command(resume=...)` for a question the thread has already moved past is a no-op in LangGraph, so the host needs no ledger, no idempotency key and no check. The first decision stands. The counter is an unconditional `ADD calls :one` in DynamoDB rather than a Python list, precisely so "it ran once" is a fact outside any process.
 
-## Two clocks, and only one of them is real
-
-This is the part nobody writes down, and it is where a system like this silently loses a refund.
-
-Both packages have a notion of time, and they mean completely different things by it.
-
-`WaitPolicy(timeout="P3D")` publishes `expires_at` on the envelope. **Nothing enforces it.** agent-wait never sees an answer, so it cannot act on a deadline. What is supposed to happen is that whoever consumes the envelope notices the deadline passed and sends the policy's own `default` back as an ordinary answer — the same shape as a human clicking reject. If the consumer sends nothing, the thread waits forever. That is LangGraph, and it is fine.
-
-There is a test for the deadline path, because it is the one people assume is automatic. It takes `envelope["default"]` verbatim and sends it as the answer:
-
-```python
-out = answer(local, envelope, envelope["default"])   # {"action": "reject", "reason": "no finance response within P3D"}
-assert "refunds issued this process: []" in out
-assert calls(local, order_id) == 0
-```
-
-A timeout is a rejection somebody sent. There is no other kind.
-
-`DynamoDBSaver(ttl_seconds=...)` stamps a `ttl` attribute on every item it writes, and the package enables the table's TTL on that attribute. **AWS enforces this one.** DynamoDB deletes the parked thread whether or not anyone is still holding a question about it.
-
-So set the advisory one to three days and the enforced one to one day, and run it:
-
-```text
-WaitPolicy(timeout='P3D')
-DynamoDBSaver(ttl_seconds=86400)
-
-parked items: 8, every one with a ttl attribute
-{
-  "table TTL": { "TimeToLiveStatus": "ENABLED", "AttributeName": "ttl" },
-  "checkpoint ttl (epoch)": 1790360377,
-  "checkpoint ttl (utc)": "2026-09-25T18:19:37Z",
-  "envelope expires_at": "2026-09-27T18:19:38Z"
-}
-
-the question outlives the thread by 2 days, 0:00:01
-```
-
-The question in the approvals table says finance has until the 27th. The thread it would resume is deleted on the 25th. On day two, the approval arrives against a thread that no longer exists:
-
-```text
---- DynamoDB reaches the ttl and deletes the thread ---
-items for this thread: 0
-
---- day two: finance approves the question it can still see ---
-  [pid 37200] refunds issued this process: []
-  [pid 37200] agent says: Hello! Welcome to our refunds support. How can I help you today?
-
-refunds recorded in DynamoDB for order-4471: 0
-```
-
-That is act 1 again, arrived at from the other direction — and this time the operator is looking at an open question in a dashboard that promises three days. The demo deletes the items itself rather than waiting a day, because DynamoDB's sweeper runs within 48 hours of expiry and no blog post waits that long. The effect is identical: an approved refund that never happens, with no error anywhere.
-
-Put both deadlines on one axis and the bug is a shape rather than an argument. The shaded band below is the two days in which the question is still answerable and the thread is already gone. Nothing in either package can see that band: one of them wrote the left edge, the other published the right, and neither knows the other exists.
-
-![A timeline from publish on Sep 24 18:19. The enforced clock, DynamoDB ttl (ttl_seconds=86400), deletes the parked thread at 2026-09-25T18:19:37Z. The advisory clock, expires_at (timeout P3D), tells finance the question is open until 2026-09-27T18:19:38Z. The two-day gap is shaded: an approval landing there resumes a thread that no longer exists, the agent greets the customer, refunds recorded: 0.](images/two-clocks.png)
-
-Which of the two is lying to you? `expires_at` is. It is a published intention, measured from publish time, that nothing in the system is obliged to honour. `ttl` is a fact. If you set both, the checkpoint TTL is the real deadline for the whole workflow, and every `expires_at` you publish has to fit inside it. The safe default is not to set `ttl_seconds` at all on a table holding threads that are parked on humans.
-
 ## Act 4: deployed
 
-Same `graph.py`, same host `if`, on Lambda. Two FIFO queues, one function, three tables — the third being the refund counter, which exists only so the demo can prove what happened. The topology below is the whole of it, and the thing worth noticing is what is *not* in the picture: no scheduler, no wait store, no sweeper. Neither package keeps state of its own, so there is nothing else to run, and between the question going out and the answer coming back there is no process at all.
+Same `graph.py`, same host `if`, on Lambda. The approve path drawn below is two FIFO queues, one function and three tables — the third being the refund counter, which exists only so the demo can prove what happened.
+
+What is worth noticing is what neither package asked for. No wait store, no sweeper, no scheduler: they keep no state of their own, so nothing has to run on their behalf between the question going out and the answer coming back. That is a claim about what the libraries require, not a promise that your stack will stay this small — the next section adds a scheduler on purpose, and the claim survives it.
 
 ![Deployed topology: a laptop script puts starts and answers on answers.fifo (MessageGroupId = thread_id, batch size 1, DLQ after 3 receives), which triggers one Lambda (handler.py + graph.py, Python 3.12, 1 GB, 120 s) calling Bedrock Claude Sonnet 4.6. The function writes the checkpoints table (PK/SK, ttl attribute, no GSI), the approvals table (GSI by_status) and the side-effects counter, and SqsAnnounce publishes the envelope to questions.fifo (dedupe id = dedupe_key), which finance reads.](images/deployed-topology.png)
 
@@ -282,29 +226,28 @@ question arrived after 7.1s
 That 7.1 seconds is SQS delivery plus a cold start plus a model call. Here is what the function logged for the whole approval, with request ids stripped:
 
 ```text
-agent-wait {"event": "wait.created", "thread_id": "order-fc56ea", "question_id": "69c801fd266478c44601a51789d2417b",
-            "allowed_actions": ["approve", "reject"], "expires_at": "2026-09-27T18:32:11Z",
+agent-wait {"event": "wait.created", "thread_id": "order-d07f6e", "question_id": "55e4d599d8dab3ac351f504b7f35a3e7",
+            "allowed_actions": ["approve", "reject"], "expires_at": "2026-09-25T05:42:01Z",
             "tags": {"approver_group": "finance"}}
-{"thread_id": "order-fc56ea", "kind": "start",  "parked_on": ["69c801fd..."], "refunds_by_this_container": [], "reply": ""}
-REPORT Duration: 1642.21 ms  Billed Duration: 5718 ms  Max Memory Used: 178 MB  Init Duration: 4075.36 ms
+{"thread_id": "order-d07f6e", "kind": "start",  "parked_on": ["55e4d599..."], "refunds_by_this_container": [], "reply": ""}
+REPORT Duration: 1706.21 ms  Billed Duration: 1707 ms  Max Memory Used: 181 MB
 
-{"thread_id": "order-fc56ea", "kind": "answer", "parked_on": [], "refunds_by_this_container": ["order-fc56ea"],
- "reply": "Finance has reviewed and approved your refund of ₹41,000 for order order-fc56ea — the money
-           will be returned to your original payment method shortly."}
-REPORT Duration: 1697.55 ms  Billed Duration: 1698 ms  Max Memory Used: 179 MB
+{"thread_id": "order-d07f6e", "kind": "answer", "parked_on": [], "refunds_by_this_container": ["order-d07f6e"],
+ "reply": "Great news! Finance has approved your refund of ₹41,000 for order order-d07f6e."}
+REPORT Duration: 1864.71 ms  Billed Duration: 1865 ms  Max Memory Used: 182 MB
 
-{"thread_id": "order-fc56ea", "kind": "answer", "parked_on": [], "refunds_by_this_container": ["order-fc56ea"], ...}
-REPORT Duration: 15.31 ms  Billed Duration: 16 ms  Max Memory Used: 179 MB
+{"thread_id": "order-d07f6e", "kind": "answer", "parked_on": [], "refunds_by_this_container": ["order-d07f6e"], ...}
+REPORT Duration: 31.37 ms  Billed Duration: 32 ms  Max Memory Used: 182 MB
 
-{"thread_id": "order-fc56ea", "kind": "answer", "parked_on": [], "refunds_by_this_container": ["order-fc56ea"], ...}
-REPORT Duration: 14.45 ms  Billed Duration: 15 ms  Max Memory Used: 179 MB
+{"thread_id": "order-d07f6e", "kind": "answer", "parked_on": [], "refunds_by_this_container": ["order-d07f6e"], ...}
+REPORT Duration: 16.29 ms  Billed Duration: 17 ms  Max Memory Used: 182 MB
 ```
 
-Four invocations, and on one scale below they are two tall bars and two slivers. The first is the customer's message and pays a 4.1-second cold start on top of a 1.6-second run. The second is finance's approval: 1.7 seconds, including the model call that writes the reply. The third and fourth are the duplicate and the late rejection: **15 milliseconds each**. That is what a no-op resume costs — load the thread from DynamoDB, see the question has been answered, return. No model call, because nothing ran, which is why the last two bars barely exist. Only the durations are to scale; in wall-clock time those four bars are days apart.
+Four invocations, and on one scale below they are two tall bars and two slivers. The first is the customer's message, 1.7 seconds. The second is finance's approval, 1.9 seconds, including the model call that writes the reply. The third and fourth are the duplicate and the late rejection: **32 and 17 milliseconds**. That is what a no-op resume costs — load the thread from DynamoDB, see the question has been answered, return. No model call, because nothing ran, which is why the last two bars barely exist. None of the four shows an init duration: the deadline run below went first on the same function, so the container was already warm. Only the durations are to scale; in wall-clock time those four bars are days apart.
 
-![The four Lambda invocations on one millisecond scale: 1 start = 4075.36 ms cold start + 1642.21 ms run (billed 5718); 2 answer = 1697.55 ms; 3 duplicate answer = 15.31 ms; 4 late rejection = 14.45 ms, no model call. Invocations are days apart; only durations are to scale.](images/four-invocations.png)
+![Four bars on one millisecond scale, all warm: invocation 1, the start, 1706.21 ms (billed 1707); invocation 2, the approval, 1864.71 ms; invocations 3 and 4, the duplicate and the late rejection, 31.37 ms and 16.29 ms slivers with no model call.](images/four-invocations.png)
 
-`refunds_by_this_container` says `["order-fc56ea"]` on all three answers, and that is not a bug in the demo. It is a module-level Python list, and Lambda reused the container, so it holds everything that container has ever refunded. The number that means something is the counter in DynamoDB, which is why the counter is in DynamoDB:
+`refunds_by_this_container` says `["order-d07f6e"]` on all three answers, and that is not a bug in the demo. It is a module-level Python list, and Lambda reused the container, so it holds everything that container has ever refunded. The number that means something is the counter in DynamoDB, which is why the counter is in DynamoDB:
 
 ```text
 open questions in the approvals table (GSI by_status): 1
@@ -321,19 +264,116 @@ further questions published for this thread: 0
 
 Read the third line again. The refund has been approved, the money has moved, and the row in the approvals table still says `status = "open"`. `DynamoDbAnnounce` writes that row once and never touches it again, on purpose — it is not on the receive path and cannot know the question was answered. Point a dashboard straight at that table and it will show finance a question they already approved, with a live-looking Approve button on it. Closing the row is the host's job; this host does not do it, and nothing warned me. Worth knowing before that table becomes a queue somebody works from.
 
-The whole approval billed 7.4 GB-seconds of Lambda, four requests, a handful of DynamoDB writes and eight SQS messages. Between the question going out and the answer coming back, that cost is zero: there is no process, no polling loop and no scheduled sweep. The thread is a few rows and the question is a message. Everything was torn down with `cdk destroy` when the run finished.
+The whole approval billed 3.6 GB-seconds of Lambda, four requests, a handful of DynamoDB writes and eight SQS messages. Between the question going out and the answer coming back, that cost is zero: no process, no polling loop, no scheduled sweep. The thread is a few rows and the question is a message.
 
-**Why FIFO on both legs.** Outbound, `SqsAnnounce` sets `MessageDeduplicationId` to the envelope's `dedupe_key` (`wait.created:<question_id>`, stable across republishes), so a redelivered start message that re-runs the thread and republishes the same question is swallowed by the queue itself. Inbound, `MessageGroupId = thread_id` means two answers for one thread are never processed concurrently. On a standard queue, two Lambdas could pick up two answers for the same thread and both try to resume the same checkpoint. Neither of those is a correctness requirement — LangGraph would ignore the second resume anyway — but one is a duplicate approval in someone's inbox and the other is a race against DynamoDB, and both are free to avoid.
+## The deadline, enforced
 
-The FIFO deduplication window is five minutes, not a ledger. For anything longer, the envelope's `dedupe_key` is what a consumer deduplicates on.
+Which brings us to the thing act 4 just said nobody needs.
 
-This stack passes three announcers — a log line, the queue, the row — and that list is where fan-out lives. `SnsAnnounce` turns the policy's `tags` into message attributes, so a subscription filter routes `approver_group = finance` to one queue and everything else to another without the agent knowing either exists. `EventBridgeAnnounce` puts it on a bus where rules split one question across Slack, a ticket and an audit log. `WebhookAnnounce` is a signed POST, in the stdlib, no extra. Anywhere else — Kinesis, Kafka, a Slack client, a Redis key — is a `BaseAnnounce` subclass with one method; those are the dimmed boxes below, and the distance between them and the shipped ones is that one method. Still one `publish_interrupts` call.
+`FINANCE` declares `timeout="PT2M"` on the deployed stack — three days is the real policy, two minutes is what a blog post can wait for — and `agent-wait` publishes it as `expires_at` and does nothing about it. That is the division of labour, not a gap: `expires_at` and `default` are machine-readable so that something else can act on them with no human and no agent code involved.
+
+Here that something else is a second Lambda on a second queue — one of four destinations the same `publish_interrupts` call already writes to, and the only one no human reads:
+
+```python
+ANNOUNCE = [
+    LogAnnounce(),
+    SqsAnnounce(os.environ["REFUND_QUESTIONS_QUEUE"]),   # a person reads this
+    SqsAnnounce(os.environ["REFUND_TIMEOUTS_QUEUE"]),    # a scheduler reads this
+    DynamoDbAnnounce(os.environ["REFUND_APPROVALS_TABLE"]),
+]
+```
+
+That function asks EventBridge Scheduler for a one-shot delivery of the policy's own `default`, at `expires_at`, to the queue the agent listens on. It knows nothing about LangGraph, checkpoints or refunds — one JSON document in, one schedule out:
+
+```python
+scheduler.create_schedule(
+    Name=f"refund-timeout-{envelope['question_id'][:24]}",
+    ScheduleExpression=f"at({expires_at.rstrip('Z')})",
+    ActionAfterCompletion="DELETE",
+    Target={"Arn": ANSWERS_QUEUE_ARN, "RoleArn": SCHEDULER_ROLE,
+            "Input": json.dumps(answer_for(envelope)), ...},
+)
+```
+
+`answer_for` invents nothing: it copies the envelope's `reply_with` stub — the pre-filled reply agent-wait publishes for exactly this purpose — and drops `default` into the `answer` field. What the deadline sends is byte for byte what a human sends by clicking reject.
+
+Two details in that call are load-bearing. The name is derived from `question_id`, so arming the timer is idempotent — a republished envelope asks for a schedule that already exists, gets `ConflictException`, and is dropped. One question, one timer, however many times it is announced. And `DELETE` means the schedule reaps itself, so there is no sweeper and nothing accumulates.
+
+Here is a run where nobody answers:
+
+```text
+question arrived after 2.4s
+question_id : 95e310aa4663f0ec685aa1575fef07b4
+expires_at  : 2026-09-25T05:39:55Z
+default     : {"action": "reject", "reason": "no finance response within PT2M"}
+
+--- what the consumer created, before it fires ---
+{
+  "Name": "refund-timeout-95e310aa4663f0ec685aa157",
+  "ScheduleExpression": "at(2026-09-25T05:39:55)",
+  "ScheduleExpressionTimezone": "UTC",
+  "ActionAfterCompletion": "DELETE",
+  "Target": {
+    "Arn": "...:approval-on-lambda-Answers...fifo",
+    "SqsParameters": { "MessageGroupId": "order-5ed76d" },
+    "Input": {
+      "thread_id": "order-5ed76d",
+      "question_id": "95e310aa4663f0ec685aa1575fef07b4",
+      "answer": { "action": "reject", "reason": "no finance response within PT2M" }
+    }
+  }
+}
+
+refunds recorded while it waits: 0
+open rows for this thread       : 1
+
+--- waiting 211s for the deadline; no process of ours is running ---
+the schedule fired and deleted itself (ActionAfterCompletion=DELETE)
+the agent resumed at 05:40:13Z, 18s after expires_at
+
+refunds recorded after the deadline: 0
+```
+
+Eighteen seconds late, printed rather than rounded away: Scheduler is minute-granular, and that gap is delivery, not drift. The customer got a sentence rather than silence — *"could not be processed at this time, as it requires finance approval and no response was received within the allotted time"* — because the reject travelled the graph as an ordinary answer and the model wrote the reply it always writes.
+
+Then the human turns up late and approves:
+
+```text
+--- a human approves, too late ---
+refunds recorded after the late approval: 0
+```
+
+Nothing runs, and not because the timeout installed a guard: it is the same no-op as a duplicate approval on the happy path, the thread having moved past the question. The deadline did not win a race with the human. It answered first, and after that there was nothing left to answer.
+
+End to end, with the waiting drawn to scale, it looks like this.
+
+![The deadline end to end on thread order-5ed76d: the start invocation parks and publishes the same envelope to questions.fifo and timeouts.fifo. The scheduler Lambda creates a one-shot schedule named refund-timeout-95e310aa4663f0ec685aa157 with at(2026-09-25T05:39:55), ActionAfterCompletion DELETE, targeting answers.fifo with MessageGroupId order-5ed76d and the envelope's default as the answer. For 211 s no process runs. At expires_at 2026-09-25T05:39:55Z nothing fires; at 05:40:13Z, 18 s later, the schedule delivers the default and deletes itself, the agent resumes and rejects, refunds recorded 0. A late human approval is a no-op, refunds still 0.](images/timeout-sequence.png)
+
+**The claim this section has to defend.** Act 4 said that between the question going out and the answer coming back there is no process at all, and a timer looks like a process. It is not one, and the long empty stretch in the middle of that picture is the point: the schedule is a row in AWS, with no container, no polling loop and nothing billed while it waits. The scheduler Lambda ran once, at question time — the schedule existed before the deadline, which is how we printed it — and then stopped. The timer is not an exception to the claim. It is the claim, applied to the deadline as well as to the agent.
+
+**And the thing that nearly ate this section.** The first deployed attempt failed in the worst way available: the schedule was created correctly, fired on time and deleted itself, and the agent never resumed. A FIFO queue rejects a `SendMessage` carrying no `MessageDeduplicationId` unless content-based deduplication is on, and Scheduler's `SqsParameters` can set `MessageGroupId` and nothing else. The delivery was refused — and from Scheduler's side the invocation had been made, so it reported success and tidied the schedule away. A deadline that silently never arrives, a question that waits for ever, and the evidence already deleted. The fix is one property, `content_based_deduplication=True` on the answers queue; it changes nothing for the other senders, because an explicit deduplication id takes precedence over the content hash.
+
+Be precise about why nothing caught it. The answers queue has a dead-letter queue and it could never have helped: a DLQ catches messages that arrived and failed to process, and this was a send rejected before anything entered the queue. What catches it is a `DeadLetterConfig` on the *schedule's target* — which is why there is one, and why the run prints it:
+
+```text
+undelivered schedules on the schedule dead-letter queue: 0
+```
+
+Below, the same delivery twice: on the left it is refused and everything downstream still looks healthy, on the right one queue property changes and the agent wakes up.
+
+![Left, the first deployed attempt: the schedule fires and sends with MessageGroupId only; the FIFO answers queue rejects a send with no MessageDeduplicationId; Scheduler still reports success and deletes the schedule; nothing entered the queue so the answers dead-letter queue never sees it; the agent never resumes and the evidence is gone. Right, the fix: content_based_deduplication=True on the answers queue, so the send is accepted and the agent resumes, plus a DeadLetterConfig on the schedule's target where a refused delivery would land; the run prints undelivered schedules on the schedule dead-letter queue: 0.](images/timeout-silent-failure.png)
+
+**Why FIFO on every leg.** Outbound, `SqsAnnounce` sets `MessageDeduplicationId` to the envelope's `dedupe_key` (`wait.created:<question_id>`, stable across republishes), so a redelivered start message that republishes the same question is swallowed by the queue itself. Inbound, `MessageGroupId = thread_id` serialises answers for one thread — and with a deadline in play that stops being hypothetical, because a human clicking approve and a schedule firing are exactly two answers that can arrive at once. On a standard queue they would be two Lambdas resuming the same checkpoint. LangGraph would ignore the loser anyway, so this is not correctness; it is not paying for a race you can decline. The deduplication window is five minutes, not a ledger — for anything longer, `dedupe_key` is what a consumer deduplicates on.
+
+That announcer list is where fan-out lives, and this section is one instance of it: two of those four entries are consumers with nothing in common. `SnsAnnounce` turns the policy's `tags` into message attributes, so a subscription filter routes `approver_group = finance` one way and everything else another, without the agent knowing either exists. `EventBridgeAnnounce` puts it on a bus where rules split one question across Slack, a ticket and an audit log. `WebhookAnnounce` is a signed POST, in the stdlib. Anywhere else — Kinesis, Kafka, a Slack client, a Redis key — is a `BaseAnnounce` subclass with one method; those are the dimmed boxes below, and the distance between them and the shipped ones is that one method. Still one `publish_interrupts` call.
 
 ![One publish_interrupts(result, thread_id, announce) call fans out to a list. Ships in agent-wait 0.7.0: SqsAnnounce, DynamoDbAnnounce and LogAnnounce (filled, used in act 4), plus SnsAnnounce, EventBridgeAnnounce and WebhookAnnounce. Separated and dimmed, not shipped: Kinesis, Kafka, Slack, a Redis key, a Postgres row, each one BaseAnnounce subclass with a deliver(envelope, transition) method away.](images/announcer-fanout.png)
 
 ## What each package will not do for you
 
 `langgraph-dynamodb-checkpoint`: one item holds the whole serialized checkpoint, so DynamoDB's 400 KB item limit is the ceiling on your state — and on an unbounded message list. Every local run log in this project carries the package's own INFO line about that, once per process; the Lambda sets `AGENTSTATE_QUIET=1`. `delete_for_runs` is a filtered `Scan` and only finds items written by 0.5.0 or later. `prune(strategy="keep_latest")` is not `DeltaChannel`-aware. The async API is executor-backed rather than native `aioboto3`.
+
+One more, because it is the trap that pairs with the deadline above. `DynamoDBSaver(ttl_seconds=...)` stamps a `ttl` on every item it writes, and DynamoDB deletes them whether or not a question about that thread is still open. That deadline *is* enforced, by AWS, and it can silently undercut the advisory one you published: set `ttl_seconds` to a day and a `timeout` of three, and an approval arriving on day two resumes a thread that no longer exists — which is act 1 again, arrived at from the other direction, and with an operator looking at a dashboard that still promises three days. The safe default is not to set `ttl_seconds` at all on a table holding threads parked on humans.
 
 `agent-wait`: it never receives an answer, so `expires_at`, `default`, `answer_ttl` and `allowed_actions` are all published and none of them are enforced. `DynamoDbAnnounce` is an unconditional `put_item`, so a host that treats the row as a ledger — open, answered, closed — has to read it and skip republishing itself; the adapter will not do that read, on purpose. And on langgraph 1.2.x there is one `interrupt()` per node, so each waiting tool needs its own node.
 
