@@ -126,7 +126,11 @@ LOG_RULES: list[tuple[str, str, str]] = [  # (log file, regex, label); the whole
     ("run-deployed-timeout.log", r'"Name": "refund-timeout-[0-9a-f]+"', "deadline: schedule name"),
     ("run-deployed-timeout.log", r'"ScheduleExpression": "at\([^"]+\)"', "deadline: at() expression"),
     ("run-deployed-timeout.log", r"waiting \d+s for the deadline", "deadline: wait"),
-    ("run-deployed-timeout.log", r"the agent resumed at [\dTZ:]+, \d+s after expires_at", "deadline: resumed"),
+    # 2026-09-28: was `the agent resumed at ..., Ns after expires_at`. The owner cut every
+    # reference to the 22 s delivery gap, because Scheduler's latency is not what the post
+    # argues. Re-pointed at a line the post still quotes rather than deleted, so this block
+    # keeps a log rule over it.
+    ("run-deployed-timeout.log", r"the schedule fired and deleted itself \(ActionAfterCompletion=DELETE\)", "deadline: fired and self-deleted"),
     ("run-deployed-timeout.log", r"refunds recorded [^\n:]+: \d+", "deadline: refund count"),
     # 2026-09-27: the schedule-DLQ line and the pytest summary are no longer quoted by the post
     # (the build-diary aside and "Reproduce it" were cut); the logs stay as README evidence.

@@ -6,7 +6,7 @@ Human-in-the-loop tutorials assume the process is still running when the human a
 
 A refund over the limit needs finance. Finance takes days. Lambda gives you fifteen minutes. An event-driven runtime dies as soon as the event is processed. Even AgentCore gives a session's compute eight hours, and when it goes, anything held in memory goes with it.
 
-Two packages do the work. [`langgraph-dynamodb-checkpoint`](https://skamalj.github.io/agentstate-reducer/langgraph/dynamodb/) 0.5.0 makes the parked thread a row. `agent-wait` 0.8.0 makes the interrupt a message. Every number and log line below comes from a real run. The code, logs and tests are at [github.com/skamalj/agentstate-examples/tree/main/approval-on-lambda](https://github.com/skamalj/agentstate-examples/tree/main/approval-on-lambda).
+Two packages do the work. [`langgraph-dynamodb-checkpoint`](https://skamalj.github.io/agentstate-reducer/langgraph/dynamodb/) 0.5.0 makes the parked thread a row. [`agent-wait`](https://skamalj.github.io/agent-wait/) 0.8.0 makes the interrupt a message. Every number and log line below comes from a real run. The code, logs and tests are at [github.com/skamalj/agentstate-examples/tree/main/approval-on-lambda](https://github.com/skamalj/agentstate-examples/tree/main/approval-on-lambda).
 
 ![End to end: a start message on answers.fifo triggers invocation 1; the agent calls issue_refund, @wait parks it, the run ends with __interrupt__. DynamoDBSaver writes the parked thread (8 items) and publish_interrupts puts the envelope on questions.fifo and an open row in the approvals table. Then nothing runs for days. Finance reads the envelope, copies reply_with, sets the answer and sends it to answers.fifo; invocation 2 loads the thread back from DynamoDB, resumes, and issues the refund once.](images/whole-flow.png)
 
@@ -324,8 +324,6 @@ open rows for this thread       : 1
 
 --- waiting 216s for the deadline; no process of ours is running ---
 the schedule fired and deleted itself (ActionAfterCompletion=DELETE)
-the agent resumed at 13:11:32Z, 22s after expires_at
-(EventBridge Scheduler is minute-granular; that gap is delivery, not drift)
 
 refunds recorded after the deadline: 0
 ```
@@ -339,7 +337,7 @@ refunds recorded after the late approval: 0
 
 Nothing runs, and the timeout needed no guard to stop it. It is the same no-op as a duplicate approval: the thread has moved past the question.
 
-![The deadline end to end on thread order-93852c: the start invocation parks and publishes the same envelope to questions.fifo and timeouts.fifo. The scheduler Lambda creates a one-shot schedule named refund-timeout-5527dd1507fc72b7f0e617b7 with at(2026-09-27T13:11:10), ActionAfterCompletion DELETE, targeting answers.fifo with MessageGroupId order-93852c and the envelope's default as the answer. For 216 s no process runs. At expires_at 2026-09-27T13:11:10Z nothing fires; at 13:11:32Z, 22 s later, the schedule delivers the default and deletes itself, the agent resumes and rejects, refunds recorded 0. A late human approval is a no-op, refunds still 0.](images/timeout-sequence.png)
+![The deadline end to end on thread order-93852c: the start invocation parks and publishes the same envelope to questions.fifo and timeouts.fifo. The scheduler Lambda creates a one-shot schedule named refund-timeout-5527dd1507fc72b7f0e617b7 with at(2026-09-27T13:11:10), ActionAfterCompletion DELETE, targeting answers.fifo with MessageGroupId order-93852c and the envelope's default as the answer. For 216 s no process runs. At expires_at 2026-09-27T13:11:10Z the schedule delivers the default and deletes itself, the agent resumes and rejects, refunds recorded 0. A late human approval is a no-op, refunds still 0.](images/timeout-sequence.png)
 
 The schedule is a row in AWS: no container, nothing billed while it waits. The scheduler Lambda ran once, at question time.
 
