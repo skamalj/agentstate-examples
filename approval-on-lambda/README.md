@@ -19,6 +19,8 @@ Docs: <https://skamalj.github.io/agentstate-reducer/langgraph/dynamodb/> and
 ## Run
 
 ```bash
+git clone https://github.com/skamalj/agentstate-examples
+cd agentstate-examples/approval-on-lambda
 uv venv -p 3.12
 uv sync --all-groups
 export AWS_PROFILE=<your sso profile> AWS_DEFAULT_REGION=ap-south-1

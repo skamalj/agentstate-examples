@@ -15,6 +15,7 @@ you add rules for that post's own numbers.
 
 from __future__ import annotations
 
+import html
 import re
 import sys
 from pathlib import Path
@@ -23,7 +24,10 @@ folder = Path(sys.argv[1] if len(sys.argv) > 1 else __file__).resolve()
 folder = folder if folder.is_dir() else folder.parent
 blog = (folder / "blog.md").read_text(encoding="utf-8")
 svgs = {p.stem: p.read_text(encoding="utf-8") for p in (folder / "images").glob("*.svg")}
-alts = {m.group(2): m.group(1) for m in re.finditer(r"!\[([^\]]*)\]\(images/([\w-]+)\.png\)", blog)}
+# Line-anchored and greedy: a "[^\]]*" alt pattern stops at the first "]" inside a caption and
+# silently drops that caption (it missed 9 of 10 on another post). A dropped caption reads as
+# "not inserted", never as a match.
+alts = {m.group(2): m.group(1) for m in re.finditer(r"^!\[(.*)\]\(images/([\w-]+)\.png\)\s*$", blog, re.M)}
 
 
 def grab(rx: str) -> str | None:
@@ -34,28 +38,9 @@ def grab(rx: str) -> str | None:
 # (diagram, label, expected value from blog.md, must also appear in the alt text)
 RULES: list[tuple[str, str, str | None, bool]] = []
 
-# step 4: the four REPORT lines, in order
-reports = re.findall(
-    r"REPORT Duration: ([\d.]+) ms\s+Billed Duration: (\d+) ms\s+Max Memory Used: (\d+) MB(?:\s+Init Duration: ([\d.]+) ms)?",
-    blog,
-)
-if len(reports) == 4:
-    (d1, b1, m1, init), (d2, _, m2, _), (d3, _, m3, _), (d4, _, m4, _) = reports
-    RULES += [
-        ("four-invocations", "init", init, True),
-        ("four-invocations", "duration 1", d1, True),
-        ("four-invocations", "billed 1", b1, True),
-        ("four-invocations", "duration 2", d2, True),
-        ("four-invocations", "duration 3", d3, True),
-        ("four-invocations", "duration 4", d4, True),
-        ("four-invocations", "memory range", (f"{min(m1, m2, m3, m4)}–{max(m1, m2, m3, m4)} MB" if min(m1, m2, m3, m4) != max(m1, m2, m3, m4) else f"{m1} MB"), False),
-    ]
+# 2026-09-27: the four-invocations and timeout-silent-failure figures were cut with the benchmark
+# and the build-diary sections, so their rules are gone rather than left to SKIP forever.
 RULES += [
-    ("four-invocations", "GB-seconds", grab(r"billed ([\d.]+) GB-seconds"), False),
-    ("four-invocations", "no-op billed ms", (lambda m: m and f"{m.group(1)} and {m.group(2)} ms")(re.search(r"\*\*(\d+) and (\d+) milliseconds\*\*", blog)), False),
-    # the silent failure: the property that fixes it and the evidence line the run prints
-    ("timeout-silent-failure", "queue property", grab(r"`(content_based_deduplication=True)`"), False),
-    ("timeout-silent-failure", "schedule DLQ count", (lambda v: v and f"undelivered schedules on the schedule dead-letter queue: {v}")(grab(r"undelivered schedules on the schedule dead-letter queue: (\d+)")), True),
     # step 3: the envelope
     ("envelope", "event_id", grab(r'"event_id": "([A-Z0-9]+)"'), False),
     ("envelope", "thread_id", grab(r'"thread_id": "(order-[0-9a-f-]+)",\n  "question_id"'), False),
@@ -90,7 +75,10 @@ for diagram, label, value, in_alt in RULES:
         print(f"SKIP {diagram:18} {label:24} (pattern or diagram not present)")
         continue
     checked += 1
-    ok_svg = value in svgs[diagram]
+    # Match against the artwork only: the aria-label is a description, and since it equals the
+    # caption it would otherwise satisfy "appears in the SVG" for any value the caption states,
+    # drawn or not (2026-09-27).
+    ok_svg = value in re.sub(r'aria-label="[^"]*"', "", svgs[diagram])
     ok_alt = value in alts.get(diagram, "") if in_alt else True
     ok = ok_svg and ok_alt
     failed += not ok
@@ -140,8 +128,8 @@ LOG_RULES: list[tuple[str, str, str]] = [  # (log file, regex, label); the whole
     ("run-deployed-timeout.log", r"waiting \d+s for the deadline", "deadline: wait"),
     ("run-deployed-timeout.log", r"the agent resumed at [\dTZ:]+, \d+s after expires_at", "deadline: resumed"),
     ("run-deployed-timeout.log", r"refunds recorded [^\n:]+: \d+", "deadline: refund count"),
-    ("run-deployed-timeout.log", r"undelivered schedules on the schedule dead-letter queue: \d+", "deadline: schedule DLQ"),
-    ("run-pytest.log", r"\d+ passed in [\d.]+s", "pytest summary"),
+    # 2026-09-27: the schedule-DLQ line and the pytest summary are no longer quoted by the post
+    # (the build-diary aside and "Reproduce it" were cut); the logs stay as README evidence.
 ]
 for logname, rx, label in LOG_RULES:
     logpath = folder / logname
@@ -158,21 +146,8 @@ for logname, rx, label in LOG_RULES:
         failed += not ok
         print(f"{'OK  ' if ok else 'DIFF'} {logname:18} {label:24} log={val!r:44} {'in a block' if ok else 'NOT in any block'}")
 
-# The deployed REPORT lines: the log holds every invocation of the function (the deadline run
-# first, cold start included); the post quotes the approve path, which is the LAST FOUR. The
-# post strips "[run] " and the Memory Size field, so compare field by field, in order.
-lam = folder / "run-deployed-lambda.log"
-if lam.exists():
-    log_reports = re.findall(
-        r"REPORT Duration: ([\d.]+) ms\s+Billed Duration: (\d+) ms\s+Memory Size: \d+ MB\s+Max Memory Used: (\d+) MB(?:\s+Init Duration: ([\d.]+) ms)?",
-        lam.read_text(encoding="utf-8", errors="replace"))
-    post_reports = re.findall(
-        r"REPORT Duration: ([\d.]+) ms\s+Billed Duration: (\d+) ms\s+Max Memory Used: (\d+) MB(?:\s+Init Duration: ([\d.]+) ms)?", blocks)
-    checked += 1
-    tail = log_reports[-4:]
-    ok = len(post_reports) == 4 and post_reports == tail
-    failed += not ok
-    print(f"{'OK  ' if ok else 'DIFF'} {'run-deployed-lambda':18} {'last 4 REPORT lines':24} post={post_reports} log_tail={tail}")
+# 2026-09-27: the last-four-REPORT-lines rule was removed with the benchmark section; the post no
+# longer quotes REPORT lines. run-deployed-lambda.log stays as README evidence.
 
 # Pinned version: every "agent-wait X.Y.Z" in the post (prose and captions) and in every SVG
 # must equal the version actually installed, read from uv.lock, never typed here. Narrow on
@@ -196,6 +171,33 @@ else:
     failed += bool(wrong)
     if not wrong:
         print(f"OK   {'uv.lock':18} {'agent-wait version':24} {pinned!r} in {len(hits)} mention(s), all equal")
+
+# Caption = artwork (2026-09-27). Three times a caption stayed green while describing a figure
+# that had been redrawn (the 496, the 0.7.0, the old topology), because agreement between the
+# caption and the drawing rested on somebody remembering to swap it. The aria-label travels with
+# the SVG, so it is the single source: the alt text in blog.md must equal it, whitespace aside.
+# No fuzzy matching. A figure with no aria-label is a SKIP that names the figure, not a pass.
+def _ws(s: str) -> str:
+    return " ".join(s.split())
+
+
+for name, body in sorted(svgs.items()):
+    m = re.search(r'aria-label="([^"]*)"', body)
+    if not m:
+        print(f"SKIP {name:18} {'caption = aria-label':24} (no aria-label on the SVG)")
+        continue
+    if name not in alts:
+        print(f"SKIP {name:18} {'caption = aria-label':24} (no image line in blog.md)")
+        continue
+    aria, alt = _ws(html.unescape(m.group(1))), _ws(alts[name])
+    checked += 1
+    if aria == alt:
+        print(f"OK   {name:18} {'caption = aria-label':24} {len(alt)} chars, identical")
+    else:
+        failed += 1
+        i = next((k for k, (a, b) in enumerate(zip(aria, alt)) if a != b), min(len(aria), len(alt)))
+        print(f"DIFF {name:18} {'caption = aria-label':24} diverge at char {i}: "
+              f"caption '…{alt[max(0, i - 20):i + 30]}…' vs aria-label '…{aria[max(0, i - 20):i + 30]}…'")
 
 print(f"\n{checked} checked, {failed} differences")
 sys.exit(1 if failed else 0)
