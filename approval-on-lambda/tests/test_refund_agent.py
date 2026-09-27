@@ -36,7 +36,7 @@ def approved(local):
 
 
 def test_the_run_parks_instead_of_refunding(approved):
-    assert approved["envelope"]["question"]["function"] == "escalate_refund"
+    assert approved["envelope"]["question"]["function"] == "issue_refund"
     # nothing was refunded while the question was open
     assert "refunds issued this process: []" in approved["start"]
 
@@ -62,13 +62,13 @@ def test_the_envelope_carries_the_documented_fields(approved):
     envelope = approved["envelope"]
     assert envelope["type"] == "wait.created"
     assert envelope["question"] == {
-        "function": "escalate_refund",
+        "function": "issue_refund",
         "args": {"order_id": approved["order_id"], "amount": 41000},
     }
     assert envelope["allowed_actions"] == ["approve", "reject"]
     assert envelope["tags"] == {"approver_group": "finance"}
     assert envelope["default"]["action"] == "reject"
-    assert envelope["source"] == {"function": "escalate_refund"}
+    assert envelope["source"] == {"function": "issue_refund"}
     assert envelope["reply_with"] == {
         "thread_id": approved["order_id"],
         "question_id": envelope["question_id"],
@@ -128,25 +128,3 @@ def test_ttl_seconds_stamps_every_parked_item(local, order_id, tmp_path):
     # the package enables table TTL only on a table it created itself -- this is one
     assert spec["TimeToLiveDescription"]["AttributeName"] == "ttl"
     assert spec["TimeToLiveDescription"]["TimeToLiveStatus"] == "ENABLED"
-
-
-def test_the_limit_is_code_not_a_prompt(local, order_id, monkeypatch):
-    """The model picks the tool; the tool enforces the limit.
-
-    Call the unguarded-looking tool directly with an amount only finance may approve. It
-    must refuse without refunding, whatever the system prompt says.
-    """
-    import step3_asks
-
-    monkeypatch.setenv("REFUND_SIDE_EFFECT_TABLE", step3_asks.SIDE_EFFECTS)
-    refund.reset()
-
-    out = refund.issue_refund.invoke({"order_id": order_id, "amount": 41_000})
-
-    assert "refused" in out and "escalate_refund" in out
-    assert refund.REFUNDS_ISSUED == []
-    assert calls(local, order_id) == 0
-
-    # and the same tool still works under the limit, with the counter to prove it
-    assert refund.issue_refund.invoke({"order_id": order_id, "amount": 1_800}).startswith("refunded")
-    assert calls(local, order_id) == 1

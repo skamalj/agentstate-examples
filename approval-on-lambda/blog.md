@@ -6,34 +6,26 @@ Human-in-the-loop tutorials assume a process that is still running when the huma
 
 A refund over the limit needs finance. Finance takes days. Lambda gives you fifteen minutes.
 
-Two packages do the work. `langgraph-dynamodb-checkpoint` 0.5.0 makes the parked thread a row. `agent-wait` 0.7.0 makes the interrupt a message. Neither imports the other. Every number and log line below is from a real run, and the scripts, logs and tests are at [github.com/skamalj/agentstate-examples/tree/main/approval-on-lambda](https://github.com/skamalj/agentstate-examples/tree/main/approval-on-lambda).
+Two packages do the work. `langgraph-dynamodb-checkpoint` 0.5.0 makes the parked thread a row. `agent-wait` 0.8.0 makes the interrupt a message. Neither imports the other. Every number and log line below is from a real run, and the scripts, logs and tests are at [github.com/skamalj/agentstate-examples/tree/main/approval-on-lambda](https://github.com/skamalj/agentstate-examples/tree/main/approval-on-lambda).
 
-![End to end: a start message on answers.fifo triggers invocation 1; the agent calls escalate_refund, @wait parks it, the run ends with __interrupt__. DynamoDBSaver writes the parked thread (8 items) and publish_interrupts puts the envelope on questions.fifo and an open row in the approvals table. Then nothing runs for days. Finance reads the envelope, copies reply_with, sets the answer and sends it to answers.fifo; invocation 2 loads the thread back from DynamoDB, resumes, and issues the refund once.](images/whole-flow.png)
+![End to end: a start message on answers.fifo triggers invocation 1; the agent calls issue_refund, @wait parks it, the run ends with __interrupt__. DynamoDBSaver writes the parked thread (8 items) and publish_interrupts puts the envelope on questions.fifo and an open row in the approvals table. Then nothing runs for days. Finance reads the envelope, copies reply_with, sets the answer and sends it to answers.fifo; invocation 2 loads the thread back from DynamoDB, resumes, and issues the refund once.](images/whole-flow.png)
 
 The gap in the middle, where nothing runs for days, is the part that needs building. Four steps and a deadline, in the order things break.
 
-The agent is a LangChain `create_agent` over Claude Sonnet 4.6, with two tools and a limit of ₹25,000. `escalate_refund` is one decorator away from an ordinary tool:
+The agent is a LangChain `create_agent` over Claude Sonnet 4.6, with one tool and a limit of ₹25,000. The limit is a predicate on the decorator:
 
 ```python
 @tool
-@wait(FINANCE)
-def escalate_refund(order_id: str, amount: int) -> str:
-    """Refund an order of more than 25000 rupees. Finance approves before any money moves."""
-    return "finance approved; " + _refund(order_id, amount)
-```
-
-Two tools, not one tool with an `if`, because `@wait` is not conditional: it parks every call to the function it decorates. The model chooses from the tool descriptions and the limit in the system prompt. So what stops it calling `issue_refund` for ₹41,000? Nothing, if the limit only lives in the prompt. It does not:
-
-```python
-@tool
+@wait(FINANCE, when=lambda order_id, amount: amount > APPROVAL_LIMIT)
 def issue_refund(order_id: str, amount: int) -> str:
-    """Refund an order of 25000 rupees or less. Runs immediately."""
-    if amount > APPROVAL_LIMIT:
-        return f"refused: {amount} is over the {APPROVAL_LIMIT} approval limit; call escalate_refund"
-    return _refund(order_id, amount)
+    """Refund an order. Refunds over 25000 rupees need finance to approve first."""
+    REFUNDS_ISSUED.append(order_id)
+    return f"refunded {amount} for {order_id}"
 ```
 
-The model picks the tool; the tool enforces the limit. A wrong pick gets the refusal back as a tool result and calls `escalate_refund` instead, costing one turn. A wrong pick against a prompt-only limit moves ₹41,000 without asking anyone. Rules you care about belong in the tool body or a router node, not the prompt.
+Under the limit the body runs and nobody is asked. Over it, the call parks. Three things about the predicate, all of which matter in practice: it sees the published `args`, so what you branch on is what the approver reads; it is called again when the node re-runs on resume, so it has to be deterministic on the same arguments; and if it raises, the call parks anyway, because a refund should not go through unasked because a lambda had a typo.
+
+The rule is in code, in one place, and no model decides whether it applies. That distinction is the spine of this post: a published intention is not an enforced one, and anything you would be unhappy to see broken has to live somewhere you control.
 
 `FINANCE` is what the asker declares. Every field is published and none is enforced:
 
@@ -54,14 +46,14 @@ FINANCE = WaitPolicy(
 
 ```text
 run 1: parked on 1 question(s)
-  question_id=3b6bc3d4a85dd6eae5c25a01c4c45191
-  value={'question': {'function': 'escalate_refund', 'args': {'order_id': 'order-4471', 'amount': 41000}}, ...}
+  question_id=f20790e1bb90795863382d749ab65172
+  value={'question': {'function': 'issue_refund', 'args': {'order_id': 'order-4471', 'amount': 41000}}, ...}
 run 1: refunds issued = []
 
 --- interpreter exits here ---
 
 run 2: messages on the thread: 1
-run 2: agent says: Hello! I'm the refunds agent for our online store. How can I help you today?
+run 2: agent says: Hello! How can I help you today?
 run 2: refunds issued = []
 ```
 
@@ -89,44 +81,44 @@ agent = refund.build_agent(saver)
 The demo runs the graph in child interpreters, so the process really exits. One child parks and exits; the parent then queries DynamoDB on `PK = thread_id`:
 
 ```text
-  [pid 36816] parked on 1 question(s)
-  [pid 36816] question    = {'function': 'escalate_refund', 'args': {'order_id': 'order-4471', 'amount': 41000}}
-  [pid 36816] refunds issued this process: []
+  [pid 28932] parked on 1 question(s)
+  [pid 28932] question_id = 048c1fc9bae482cf1776509f8e0fe530
+  [pid 28932] question    = {'function': 'issue_refund', 'args': {'order_id': 'order-4471', 'amount': 41000}}
+  [pid 28932] refunds issued this process: []
 
 --- interpreter 1 is gone. What is in DynamoDB right now ---
 
-Query on PK='order-4471-a2d5f9f5': 8 items
-  checkpoint SK='1f1b8445-fd5b-612b-bfff-132d24fb0073'
+Query on PK='order-4471-a8aad5a8': 8 items
+  checkpoint SK='1f1ba728-2742-61dd-bfff-bb2ad2ad9981'
              type='msgpack', 384 bytes, ttl=-
-  checkpoint SK='1f1b8445-fd6e-68ce-8000-4f45a6520f3d'
+  checkpoint SK='1f1ba728-2758-633f-8000-354836cf8ecf'
              type='msgpack', 700 bytes, ttl=-
-  checkpoint SK='1f1b8446-0bf9-691b-8001-4ad87d4d2ba8'
-             type='msgpack', 2172 bytes, ttl=-
-  writes     SK='1f1b8445-fd5b-612b-bfff-132d24fb0073$50ff9cca-8add-dcdf-8c24-3d8998db25d1$0'
+  checkpoint SK='1f1ba728-36f4-6cb6-8001-5a29b68236c1'
+             type='msgpack', 2232 bytes, ttl=-
+  writes     SK='1f1ba728-2742-61dd-bfff-bb2ad2ad9981$295f47d1-a96a-8c7d-00e1-0db46e932354$0'
              channel='messages', 116 bytes, ttl=-
-  writes     SK='1f1b8445-fd5b-612b-bfff-132d24fb0073$50ff9cca-8add-dcdf-8c24-3d8998db25d1$1'
+  writes     SK='1f1ba728-2742-61dd-bfff-bb2ad2ad9981$295f47d1-a96a-8c7d-00e1-0db46e932354$1'
              channel='branch:to:model', 0 bytes, ttl=-
-  writes     SK='1f1b8445-fd6e-68ce-8000-4f45a6520f3d$41ebf892-1cae-c2c1-21a7-e88da81cef7c$0'
-             channel='messages', 1240 bytes, ttl=-
-  writes     SK='1f1b8445-fd6e-68ce-8000-4f45a6520f3d$41ebf892-1cae-c2c1-21a7-e88da81cef7c$1'
-             channel='__pregel_tasks', 188 bytes, ttl=-
-  writes     SK='1f1b8446-0bf9-691b-8001-4ad87d4d2ba8$4751462b-8ca3-cd49-90f6-c24686069b52$-3'
-             channel='__interrupt__', 496 bytes, ttl=-
+  writes     SK='1f1ba728-2758-633f-8000-354836cf8ecf$cef9638d-3ac8-0f86-4e27-c84053a9d784$0'
+             channel='messages', 1304 bytes, ttl=-
+  writes     SK='1f1ba728-2758-633f-8000-354836cf8ecf$cef9638d-3ac8-0f86-4e27-c84053a9d784$1'
+             channel='__pregel_tasks', 184 bytes, ttl=-
+  writes     SK='1f1ba728-36f4-6cb6-8001-5a29b68236c1$4220f82b-d6a7-53b7-12c0-9836f95c294f$-3'
+             channel='__interrupt__', 488 bytes, ttl=-
 ```
 
 Three checkpoints, one per super-step, and five pending writes hanging off them. The tree below draws the parentage those sort keys encode: one table, no GSI.
 
-The pending writes matter more than the checkpoints. The last leaf, `channel='__interrupt__'`, 496 bytes, is the parked question. A checkpointer that wrote only checkpoints would lose it, and a resume from a cold process would re-run the node from a state that does not know it ever asked. The package loads them back into `CheckpointTuple.pending_writes`. Its author reports it passing LangGraph's conformance suite at `FULL` against a live table. Every read in the resume path is a `ConsistentRead`.
+The pending writes matter more than the checkpoints. The last leaf, `channel='__interrupt__'`, 488 bytes, is the parked question. A checkpointer that wrote only checkpoints would lose it, and a resume from a cold process would re-run the node from a state that does not know it ever asked. The package loads them back into `CheckpointTuple.pending_writes`. Its author reports it passing LangGraph's conformance suite at `FULL` against a live table. Every read in the resume path is a `ConsistentRead`.
 
-![The parked thread as eight DynamoDB items under PK order-4471-a2d5f9f5: three checkpoints, one per super-step (384, 700, 2172 bytes), each with its pending writes as child items keyed <checkpoint_id>$<task_id>$<index>. The last write, channel __interrupt__, 496 bytes, is the parked question. On resume the five writes are loaded into CheckpointTuple.pending_writes.](images/parked-thread.png)
+![The parked thread as eight DynamoDB items under PK order-4471-a8aad5a8: three checkpoints, one per super-step (384, 700, 2232 bytes), each with its pending writes as child items keyed <checkpoint_id>$<task_id>$<index>. The last write, channel __interrupt__, 488 bytes, is the parked question. On resume the five writes are loaded into CheckpointTuple.pending_writes.](images/parked-thread.png)
 
 A second child interpreter, new pid, resumes the same thread:
 
 ```text
 --- interpreter 2: finance answers, three days later ---
-  [pid 11804] refunds issued this process: ['order-4471']
-  [pid 11804] agent says: Great news — Finance has approved and processed a refund of
-              ₹41,000 for order **order-4471**.
+  [pid 30460] refunds issued this process: ['order-4471']
+  [pid 30460] agent says: Since the refund amount exceeds ₹25,000, it has been sent to the finance team for approval before being processed to your account.
 
 items after the resume: 14 (was 8)
 ```
@@ -137,7 +129,7 @@ The refund ran in a process that did not exist when the question was asked. Setu
 
 Step 2 fixed durability and nothing else. The checkpoint knows the graph is waiting; nothing else does. No event, no row, no message.
 
-`@wait` has been on the tool since step 1, and on its own it does one thing. It shapes the interrupt value into `{"function": ..., "args": {...}}` and attaches the policy. It tells nobody. That is the other half of [`agent-wait` 0.7.0](https://skamalj.github.io/agent-wait/), one call after the run:
+`@wait` has been on the tool since step 1, and on its own it does one thing. It shapes the interrupt value into `{"function": ..., "args": {...}}` and attaches the policy. It tells nobody. That is the other half of [`agent-wait` 0.8.0](https://skamalj.github.io/agent-wait/), one call after the run:
 
 ```python
 announce = [SqsAnnounce(os.environ["REFUND_QUESTIONS_QUEUE"]), DynamoDbAnnounce(APPROVALS)]
@@ -151,32 +143,45 @@ publish_interrupts(result, thread_id, announce)
 ```json
 {
   "type": "wait.created",
-  "event_id": "01M3AA94A3CG2QR8V8X7HV5E10",
-  "thread_id": "order-4471-0db3659a",
-  "question_id": "2a54b5108aeffb7eea7d66df74ca16d8",
+  "event_id": "01M3HEX4REKTAXV95YVQQ08BXC",
+  "thread_id": "order-4471-ebca9020",
+  "question_id": "e03c97a8baf667b7565d85a9ef17a87a",
   "question": {
-    "function": "escalate_refund",
-    "args": { "order_id": "order-4471", "amount": 41000 }
+    "function": "issue_refund",
+    "args": {
+      "order_id": "order-4471",
+      "amount": 41000
+    }
   },
-  "allowed_actions": ["approve", "reject"],
-  "expires_at": "2026-09-27T18:19:10Z",
-  "default": { "action": "reject", "reason": "no finance response within P3D" },
+  "allowed_actions": [
+    "approve",
+    "reject"
+  ],
+  "expires_at": "2026-09-30T12:54:41Z",
+  "default": {
+    "action": "reject",
+    "reason": "no finance response within P3D"
+  },
   "answer_ttl": null,
-  "source": { "function": "escalate_refund" },
+  "source": {
+    "function": "issue_refund"
+  },
   "reply_to": null,
   "reply_with": {
-    "thread_id": "order-4471-0db3659a",
-    "question_id": "2a54b5108aeffb7eea7d66df74ca16d8",
+    "thread_id": "order-4471-ebca9020",
+    "question_id": "e03c97a8baf667b7565d85a9ef17a87a",
     "answer": null
   },
   "correlation": null,
-  "tags": { "approver_group": "finance" }
+  "tags": {
+    "approver_group": "finance"
+  }
 }
 ```
 
 `question_id` is LangGraph's own `Interrupt.id`, so a republished question keeps its identity. `reply_with` is a filled-in stub: copy it, set `answer`, send it back.
 
-![The wait.created envelope in four groups: identity (event_id, thread_id, question_id = Interrupt.id), the question shaped by @wait, the policy fields that are published but not enforced (allowed_actions, expires_at, default, answer_ttl, tags), and reply_with, a pre-filled reply whose only empty field is answer. Finance copies it, sets the answer and sends it to answers.fifo, where the host's one if turns it into Command(resume). A timeout is the same shape: send envelope.default as the answer.](images/envelope.png)
+![The envelope field by field, in four groups: identity (event_id, thread_id, question_id = LangGraph's Interrupt.id), the question shaped by @wait (issue_refund, order-4471, 41000), the policy fields that are published but not enforced (allowed_actions, expires_at, default, answer_ttl, tags), and reply_with, a pre-filled reply whose only empty field is answer. Finance copies it, sets the answer and sends it to answers.fifo, where the host's one if turns it into Command(resume). A timeout is the same shape: send envelope.default as the answer.](images/envelope.png)
 
 `DynamoDbAnnounce` was in the same list, so the question is also a row: `pk = THREAD#<thread>`, `sk = WAIT#<question_id>`, `status = "open"`, with a `by_status` GSI for "everything still open, oldest deadline first". The queue wakes someone; the row is what an operator reads.
 
@@ -193,17 +198,17 @@ Finance approves, and a new interpreter picks the answer off the queue:
 
 ```text
 --- host run 2: the answer arrives, in a new interpreter ---
-  [pid 32708] refunds issued this process: ['order-4471']
+  [pid 28852] refunds issued this process: ['order-4471']
 ```
 
 Then the same answer again, and a different answer after that:
 
 ```text
 --- the same answer arrives a second time ---
-  [pid 29200] refunds issued this process: []
+  [pid 10640] refunds issued this process: []
 
 --- and a different answer, after the fact ---
-  [pid 22404] refunds issued this process: []
+  [pid 27664] refunds issued this process: []
 
 refunds recorded in DynamoDB for order-4471, across all four runs: 1
 ```
@@ -222,37 +227,37 @@ A script on my laptop plays the customer and then finance. It never imports the 
 
 ```text
 --- the customer's message is on the queue; nothing of ours is running ---
-question arrived after 2.5s
+question arrived after 2.3s
 ```
 
-That 2.5 seconds is SQS delivery plus a model call, on a warm container. Here is what the function logged, with request ids stripped:
+That 2.3 seconds is SQS delivery plus a model call, on a warm container. Here is what the function logged, with request ids stripped:
 
 ```text
-agent-wait {"event": "wait.created", "thread_id": "order-d07f6e", "question_id": "55e4d599d8dab3ac351f504b7f35a3e7",
-            "allowed_actions": ["approve", "reject"], "expires_at": "2026-09-25T05:42:01Z",
+agent-wait {"event": "wait.created", "thread_id": "order-200829", "question_id": "3f8375f23f2c870e6827332b828d6daa",
+            "allowed_actions": ["approve", "reject"], "expires_at": "2026-09-27T13:11:10Z",
             "tags": {"approver_group": "finance"}}
-{"thread_id": "order-d07f6e", "kind": "start",  "parked_on": ["55e4d599..."], "refunds_by_this_container": [], "reply": ""}
-REPORT Duration: 1706.21 ms  Billed Duration: 1707 ms  Max Memory Used: 181 MB
+{"thread_id": "order-200829", "kind": "start",  "parked_on": ["3f8375f2..."], "refunds_by_this_container": [], "reply": ""}
+REPORT Duration: 1500.29 ms  Billed Duration: 1501 ms  Max Memory Used: 180 MB
 
-{"thread_id": "order-d07f6e", "kind": "answer", "parked_on": [], "refunds_by_this_container": ["order-d07f6e"],
- "reply": "Great news! Finance has approved your refund of ₹41,000 for order order-d07f6e."}
-REPORT Duration: 1864.71 ms  Billed Duration: 1865 ms  Max Memory Used: 182 MB
+{"thread_id": "order-200829", "kind": "answer", "parked_on": [], "refunds_by_this_container": ["order-200829"],
+ "reply": "Your refund of ₹41,000 for order **order-200829** has been successfully processed! Please note that since the amount exceeds ₹25,000, it will require finance team approval before the amount is credited back to you. Sorry for the inconvenience with your undelivered laptop!"}
+REPORT Duration: 1996.56 ms  Billed Duration: 1997 ms  Max Memory Used: 180 MB
 
-{"thread_id": "order-d07f6e", "kind": "answer", "parked_on": [], "refunds_by_this_container": ["order-d07f6e"], ...}
-REPORT Duration: 31.37 ms  Billed Duration: 32 ms  Max Memory Used: 182 MB
+{"thread_id": "order-200829", "kind": "answer", "parked_on": [], "refunds_by_this_container": ["order-200829"], ...}
+REPORT Duration: 14.83 ms  Billed Duration: 15 ms  Max Memory Used: 180 MB
 
-{"thread_id": "order-d07f6e", "kind": "answer", "parked_on": [], "refunds_by_this_container": ["order-d07f6e"], ...}
-REPORT Duration: 16.29 ms  Billed Duration: 17 ms  Max Memory Used: 182 MB
+{"thread_id": "order-200829", "kind": "answer", "parked_on": [], "refunds_by_this_container": ["order-200829"], ...}
+REPORT Duration: 18.69 ms  Billed Duration: 19 ms  Max Memory Used: 180 MB
 ```
 
-Four invocations. The customer's message takes 1.7 seconds, finance's approval 1.9 including the model call that writes the reply, and the duplicate and late rejection **32 and 17 milliseconds**. That is a no-op resume: load the thread from DynamoDB, see the question has been answered, return. No model call, because nothing ran. None shows an init duration, because the deadline run below went first on the same function and the container was warm. Only the durations are to scale; in wall-clock time these are days apart.
+Four invocations. The customer's message takes 1.5 seconds, finance's approval 2.0 including the model call that writes the reply, and the duplicate and late rejection **15 and 19 milliseconds**. That is a no-op resume: load the thread from DynamoDB, see the question has been answered, return. No model call, because nothing ran. None shows an init duration, because the deadline run below went first on the same function and the container was warm. Only the durations are to scale; in wall-clock time these are days apart.
 
-![Four bars on one millisecond scale, all warm: invocation 1, the start, 1706.21 ms (billed 1707); invocation 2, the approval, 1864.71 ms; invocations 3 and 4, the duplicate and the late rejection, 31.37 ms and 16.29 ms slivers with no model call.](images/four-invocations.png)
+![Four bars on one millisecond scale, all warm: invocation 1, the start, 1500.29 ms (billed 1501); invocation 2, the approval, 1996.56 ms; invocations 3 and 4, the duplicate and the late rejection, 14.83 ms and 18.69 ms slivers with no model call.](images/four-invocations.png)
 
 `refunds_by_this_container` says `["order-d07f6e"]` on all three answers. It is a module-level Python list and Lambda reused the container, so it holds everything that container ever refunded. The DynamoDB counter is the number that means something:
 
 ```text
-open questions in the approvals table (GSI by_status): 4
+open questions in the approvals table (GSI by_status): 2
 refunds recorded so far: 0
 
 --- finance approves, three days later as far as anything here knows ---
@@ -266,7 +271,7 @@ further questions published for this thread: 0
 
 Note the row that is still open after the refund. The money has moved and the row still says `status = "open"`. `DynamoDbAnnounce` writes it once and never touches it again, on purpose: it is not on the receive path and cannot know the question was answered. The same reason explains the four open questions on the first line, on a stack that has served one order per run: none of the earlier ones was ever closed either. A dashboard pointed at that table will show finance a question they already approved, with a live Approve button. Closing the row is the host's job, and this host does not do it.
 
-The whole approval billed 3.6 GB-seconds of Lambda, four requests, a handful of DynamoDB writes and eight SQS messages. Between the question going out and the answer coming back the cost is zero. No process, no polling loop, no scheduled sweep.
+The whole approval billed 3.5 GB-seconds of Lambda, four requests, a handful of DynamoDB writes and eight SQS messages. Between the question going out and the answer coming back the cost is zero. No process, no polling loop, no scheduled sweep.
 
 ## The deadline, enforced
 
@@ -302,24 +307,29 @@ Two details carry weight. The name comes from `question_id`, so arming the timer
 A run where nobody answers:
 
 ```text
-question arrived after 2.4s
-question_id : 95e310aa4663f0ec685aa1575fef07b4
-expires_at  : 2026-09-25T05:39:55Z
+question arrived after 6.4s
+question_id : 5527dd1507fc72b7f0e617b7cb3c8752
+expires_at  : 2026-09-27T13:11:10Z
 default     : {"action": "reject", "reason": "no finance response within PT2M"}
 
 --- what the consumer created, before it fires ---
 {
-  "Name": "refund-timeout-95e310aa4663f0ec685aa157",
-  "ScheduleExpression": "at(2026-09-25T05:39:55)",
+  "Name": "refund-timeout-5527dd1507fc72b7f0e617b7",
+  "ScheduleExpression": "at(2026-09-27T13:11:10)",
   "ScheduleExpressionTimezone": "UTC",
   "ActionAfterCompletion": "DELETE",
   "Target": {
-    "Arn": "...:approval-on-lambda-Answers...fifo",
-    "SqsParameters": { "MessageGroupId": "order-5ed76d" },
+    "Arn": "...:approval-on-lambda-Answers9615456C-EmVgk9VoMNAX.fifo",
+    "SqsParameters": {
+      "MessageGroupId": "order-93852c"
+    },
     "Input": {
-      "thread_id": "order-5ed76d",
-      "question_id": "95e310aa4663f0ec685aa1575fef07b4",
-      "answer": { "action": "reject", "reason": "no finance response within PT2M" }
+      "thread_id": "order-93852c",
+      "question_id": "5527dd1507fc72b7f0e617b7cb3c8752",
+      "answer": {
+        "action": "reject",
+        "reason": "no finance response within PT2M"
+      }
     }
   }
 }
@@ -327,14 +337,15 @@ default     : {"action": "reject", "reason": "no finance response within PT2M"}
 refunds recorded while it waits: 0
 open rows for this thread       : 1
 
---- waiting 211s for the deadline; no process of ours is running ---
+--- waiting 216s for the deadline; no process of ours is running ---
 the schedule fired and deleted itself (ActionAfterCompletion=DELETE)
-the agent resumed at 05:40:13Z, 18s after expires_at
+the agent resumed at 13:11:32Z, 22s after expires_at
+(EventBridge Scheduler is minute-granular; that gap is delivery, not drift)
 
 refunds recorded after the deadline: 0
 ```
 
-Eighteen seconds late, printed rather than rounded away: Scheduler is minute-granular, and that gap is delivery, not drift. The customer got a sentence rather than silence, *"could not be processed at this time, as it requires finance approval and no response was received within the allotted time"*, because the reject travelled the graph as an ordinary answer.
+Twenty-two seconds late, printed rather than rounded away: Scheduler is minute-granular, and that gap is delivery, not drift. The customer got a sentence rather than silence, *"could not be processed at this time, as it requires finance approval and no response was received within the allotted time"*, because the reject travelled the graph as an ordinary answer.
 
 Then the human turns up late and approves:
 
@@ -345,7 +356,7 @@ refunds recorded after the late approval: 0
 
 Nothing runs, and not because the timeout added a guard. It is the same no-op as a duplicate approval: the thread has moved past the question. The deadline did not win a race. It answered first, and then there was nothing left to answer.
 
-![The deadline end to end on thread order-5ed76d: the start invocation parks and publishes the same envelope to questions.fifo and timeouts.fifo. The scheduler Lambda creates a one-shot schedule named refund-timeout-95e310aa4663f0ec685aa157 with at(2026-09-25T05:39:55), ActionAfterCompletion DELETE, targeting answers.fifo with MessageGroupId order-5ed76d and the envelope's default as the answer. For 211 s no process runs. At expires_at 2026-09-25T05:39:55Z nothing fires; at 05:40:13Z, 18 s later, the schedule delivers the default and deletes itself, the agent resumes and rejects, refunds recorded 0. A late human approval is a no-op, refunds still 0.](images/timeout-sequence.png)
+![The deadline end to end on thread order-93852c: the start invocation parks and publishes the same envelope to questions.fifo and timeouts.fifo. The scheduler Lambda creates a one-shot schedule named refund-timeout-5527dd1507fc72b7f0e617b7 with at(2026-09-27T13:11:10), ActionAfterCompletion DELETE, targeting answers.fifo with MessageGroupId order-93852c and the envelope's default as the answer. For 216 s no process runs. At expires_at 2026-09-27T13:11:10Z nothing fires; at 13:11:32Z, 22 s later, the schedule delivers the default and deletes itself, the agent resumes and rejects, refunds recorded 0. A late human approval is a no-op, refunds still 0.](images/timeout-sequence.png)
 
 A timer looks like a process, and step 4 claimed there is none. The long empty stretch in that picture is the answer: the schedule is a row in AWS, with no container and nothing billed while it waits. The scheduler Lambda ran once, at question time.
 
@@ -363,7 +374,7 @@ Every queue here is FIFO. Outbound, `SqsAnnounce` sends the envelope's `dedupe_k
 
 The announcer list is where fan-out lives, and two of those four entries are consumers with nothing in common. The rest of the list is below, shipped and not; anywhere it does not cover is a `BaseAnnounce` subclass with one method. Still one `publish_interrupts` call.
 
-![One publish_interrupts(result, thread_id, announce) call fans out to a list. Ships in agent-wait 0.7.0: SqsAnnounce, DynamoDbAnnounce and LogAnnounce (filled, used in step 4), plus SnsAnnounce, EventBridgeAnnounce and WebhookAnnounce. Separated and dimmed, not shipped: Kinesis, Kafka, Slack, a Redis key, a Postgres row, each one BaseAnnounce subclass with a deliver(envelope, transition) method away.](images/announcer-fanout.png)
+![One publish_interrupts(result, thread_id, announce) call fans out to a list. Ships in agent-wait 0.8.0: SqsAnnounce, DynamoDbAnnounce and LogAnnounce (filled, used in step 4), plus SnsAnnounce, EventBridgeAnnounce and WebhookAnnounce. Separated and dimmed, not shipped: Kinesis, Kafka, Slack, a Redis key, a Postgres row, each one BaseAnnounce subclass with a deliver(envelope, transition) method away.](images/announcer-fanout.png)
 
 ## What each package will not do for you
 
@@ -394,11 +405,11 @@ Step 4 is a `uv pip install --target` for the Lambda runtime and a `cdk deploy`.
 
 The model is real Bedrock. DynamoDB and SQS are not: steps 2 and 3 point `AWS_ENDPOINT_URL_DYNAMODB` and `AWS_ENDPOINT_URL_SQS` at a local `moto_server`, so nothing is created in your account and there is nothing to clean up. Point those variables at DynamoDB Local, or empty them for the real services, and the same scripts run there.
 
-Sixteen tests cover the claims above, one per claim, and the README lists them. Six of them cover the timeout consumer and need no AWS account: with no credentials, `pytest -q` runs those six and skips the rest.
+Twenty tests cover the claims above, one per claim, and the README lists them. Eleven of them need no AWS account at all — the timeout consumer and the approval threshold: with no credentials, `pytest -q` runs those eleven and skips the rest.
 
 ```text
-................                                                         [100%]
-16 passed in 85.24s (0:01:25)
+....................                                                         [100%]
+20 passed in 144.09s (0:02:24)
 ```
 
 ## The point

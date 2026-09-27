@@ -4,11 +4,11 @@ requires-python = ">=3.12"
 
 [[package]]
 name = "agent-wait"
-version = "0.7.0"
+version = "0.8.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/49/74/a456c79d82a153b8851a4145abf6a71f41b7581f24f7559961e844f654f3/agent_wait-0.7.0.tar.gz", hash = "sha256:34787a3ef723ba791af592033e6452aa3f9f865584b0f05cc4316710349d2e28", size = 28342, upload-time = "2026-09-13T09:06:18.035Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7d/65/3b37a44bfc55b15b5c391cf1e1edee3c1b52753e8e3f9324893e317e5a45/agent_wait-0.8.0.tar.gz", hash = "sha256:34dcc92965bfa6522a49bd841b9f779ab1e1e019a22c0417a3feba5447c8d23e", size = 29353, upload-time = "2026-09-27T03:44:26.323Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/de/5c/bc3b62bdc9cf6ae587abe25e6964d7aba9460180ae924f78540401d9e3bc/agent_wait-0.7.0-py3-none-any.whl", hash = "sha256:b3633e4b5572dbbd31dca038fe479246c682b4a53f74f18d049f73f8e524a514", size = 37989, upload-time = "2026-09-13T09:06:16.538Z" },
+    { url = "https://files.pythonhosted.org/packages/6a/89/e40d78f14dc593a81332c8104dec5a8521b1731c2c8dd8a0e4fb44775947/agent_wait-0.8.0-py3-none-any.whl", hash = "sha256:fabed8d91d5333b6ece9aab985d4be4611697a92b338e396803564993ce8f7b5", size = 39176, upload-time = "2026-09-27T03:44:24.67Z" },
 ]
 
 [package.optional-dependencies]
@@ -71,7 +71,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "agent-wait", extras = ["aws", "langgraph"], specifier = "==0.7.0" },
+    { name = "agent-wait", extras = ["aws", "langgraph"], specifier = ">=0.8" },
     { name = "langchain", specifier = ">=1.0" },
     { name = "langchain-aws", specifier = ">=1.7.9" },
     { name = "langgraph-dynamodb-checkpoint", specifier = "==0.5.0" },

@@ -31,7 +31,7 @@ def envelope(expires_at, question_id=None, thread_id="order-4471"):
         "type": "wait.created",
         "thread_id": thread_id,
         "question_id": question_id or uuid.uuid4().hex,
-        "question": {"function": "escalate_refund", "args": {"order_id": thread_id, "amount": 41000}},
+        "question": {"function": "issue_refund", "args": {"order_id": thread_id, "amount": 41000}},
         "expires_at": expires_at,
         "default": {"action": "reject", "reason": "no finance response within PT2M"},
         "reply_with": {"thread_id": thread_id, "question_id": question_id or "x", "answer": None},

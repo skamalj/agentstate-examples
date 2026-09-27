@@ -10,7 +10,7 @@ Two packages do it, each doing one thing and neither knowing about the other:
 | piece | package |
 |---|---|
 | the parked thread survives; the checkpoint is a row | `langgraph-dynamodb-checkpoint` 0.5.0 (`DynamoDBSaver`) |
-| the question gets out and the answer gets back in | `agent-wait[langgraph,aws]` 0.7.0 (`@wait`, `publish_interrupts`, `SqsAnnounce`, `DynamoDbAnnounce`) |
+| the question gets out and the answer gets back in | `agent-wait[langgraph,aws]` 0.8.0 (`@wait`, `publish_interrupts`, `SqsAnnounce`, `DynamoDbAnnounce`) |
 | the agent | LangChain `create_agent` on LangGraph 1.2.12, Claude Sonnet 4.6 on Bedrock (ap-south-1) |
 
 Docs: <https://skamalj.github.io/agentstate-reducer/langgraph/dynamodb/> and
@@ -53,7 +53,7 @@ envelope off the queue and sends the answer back.
 
 | file | what it is |
 |---|---|
-| `graph.py` | the agent: a model, `issue_refund` (limit enforced in the body), and `escalate_refund` behind `@wait(FINANCE)` |
+| `graph.py` | the agent: a model and one tool, `issue_refund` behind `@wait(FINANCE, when=...)` — the limit is the predicate |
 | `step1_vanishes.py` | `InMemorySaver`, park, new interpreter, the question is gone |
 | `step2_survives.py` | `DynamoDBSaver`, park, kill, resume; prints the DynamoDB items in between |
 | `step3_asks.py` | `publish_interrupts` to a FIFO queue and an approvals row; answer, duplicate, late answer |
@@ -70,7 +70,7 @@ envelope off the queue and sends the answer back.
 Every number and id in `images/*.svg` (REPORT durations, envelope ids, the parked thread's PK
 and byte sizes, the two TTL timestamps) is read back out of `blog.md` and asserted to be in
 the SVG and in the image's alt text: `uv run python check_diagrams.py` (exit 1 on any drift).
-Re-run it whenever a log is regenerated. The mechanics are generic; pass another post's
+It also reads the run logs (`run-step2.log`, `run-step3.log`, `run-deployed*.log`, `run-pytest.log`) and asserts each quoted value appears verbatim in one of the post's fenced blocks, so prose and captions cannot drift from the evidence together; the deployed `REPORT` lines are checked as the last four in the log, in order. Every `agent-wait X.Y.Z` in the post and the SVGs must equal the version resolved in `uv.lock`. Re-run it whenever a log is regenerated or a dependency is bumped. The mechanics are generic; pass another post's
 folder as the argument and it runs whichever rules apply there, and that post adds its own.
 
 ## Deploy
@@ -79,7 +79,7 @@ folder as the argument and it runs whichever rules apply there, and that post ad
 # build the bundle for the Lambda runtime (no docker needed)
 uv pip install --target build/lambda --python-platform x86_64-manylinux_2_28 \
   --python-version 3.12 --no-installer-metadata --only-binary=:all: \
-  "agent-wait[langgraph,aws]==0.7.0" "langgraph-dynamodb-checkpoint==0.5.0" "langchain>=1.0" langchain-aws
+  "agent-wait[langgraph,aws]>=0.8" "langgraph-dynamodb-checkpoint==0.5.0" "langchain>=1.0" langchain-aws
 cp graph.py handler.py timeout_scheduler.py build/lambda/
 
 cd cdk
@@ -124,7 +124,7 @@ All of this ran on 2026-09-24, from Windows 11 against `ap-south-1`, against the
 | package | version |
 |---|---|
 | `langgraph-dynamodb-checkpoint` | 0.5.0 |
-| `agent-wait[langgraph,aws]` | 0.7.0 |
+| `agent-wait[langgraph,aws]` | 0.8.0 |
 | `langgraph` | 1.2.12 |
 | `langgraph-checkpoint` | 4.2.0 |
 | `langchain` | 1.4.2 |
@@ -207,13 +207,13 @@ entered the queue.
 `uv run pytest -q`, against `moto_server` and real Bedrock (`run-pytest.log`):
 
 ```text
-................                                                         [100%]
-16 passed in 85.24s (0:01:25)
+....................                                                         [100%]
+20 passed in 144.09s (0:02:24)
 ```
 
 | test | asserts |
 |---|---|
-| `test_the_run_parks_instead_of_refunding` | the question is `escalate_refund`; no refund while it is open |
+| `test_the_run_parks_instead_of_refunding` | the question is `issue_refund`; no refund while it is open |
 | `test_a_fresh_process_resumes_the_thread` | the park and the resume are different pids, and the refund ran in the second |
 | `test_the_refund_runs_exactly_once` | DynamoDB counter is 1 after approve, approve, reject |
 | `test_a_duplicate_answer_runs_nothing` | neither repeat produced a refund |
@@ -222,10 +222,19 @@ entered the queue.
 | `test_the_deadline_default_is_an_ordinary_answer` | sending `envelope["default"]` back rejects; counter stays 0 |
 | `test_under_the_limit_nothing_is_asked` | a small refund runs without any question |
 | `test_ttl_seconds_stamps_every_parked_item` | every item has `ttl`; table TTL is `ENABLED` on `ttl` |
-| `test_the_limit_is_code_not_a_prompt` | `issue_refund` called directly with 41,000 refuses and points at `escalate_refund`; no refund, counter stays 0; the same tool still pays 1,800 |
 
-`tests/test_timeout_scheduler.py` is the deadline consumer, and it needs **no AWS account
-at all** — moto's EventBridge Scheduler backend with dummy credentials:
+
+Two files need **no AWS account at all**. `tests/test_when_predicate.py` covers the
+threshold, and `tests/test_timeout_scheduler.py` the deadline consumer over moto's
+EventBridge Scheduler backend with dummy credentials:
+
+| test | asserts |
+|---|---|
+| `test_the_library_is_new_enough_for_a_conditional_wait` | `agent_wait.__version__` is 0.8+, because `when=` does not exist before it |
+| `test_the_tool_is_conditional_at_all` | the wrapper records `conditional`, an attribute 0.7 does not have |
+| `test_under_the_limit_it_refunds_and_asks_nobody` | 1,800 runs the body with no graph runtime and no credentials |
+| `test_over_the_limit_it_does_not_refund` | 41,000 moves no money; the assertion is the counter, not an exception type |
+| `test_the_threshold_is_the_limit_the_post_quotes` | the boundary is inclusive-below: `APPROVAL_LIMIT` exactly does not need finance |
 
 | test | asserts |
 |---|---|
@@ -258,7 +267,7 @@ From `langgraph-dynamodb-checkpoint` 0.5.0:
 - `ttl_seconds` stamps `ttl` on every item it writes; the package enables table TTL only
   when it creates the table.
 
-From `agent-wait` 0.7.0:
+From `agent-wait` 0.8.0:
 
 - `expires_at` is advisory and measured from publish time. Nothing enforces it.
 - `DynamoDbAnnounce` is an unconditional `put_item`, so a host that uses the row as a
@@ -266,5 +275,6 @@ From `agent-wait` 0.7.0:
 - FIFO deduplication is a five-minute window, not a ledger. The envelope's `dedupe_key`
   is what a consumer deduplicates on.
 - one `interrupt()` per node on langgraph 1.2.x — so one waiting tool per node.
-- `@wait` is not conditional: it parks every call to the function it decorates. That is
-  why `graph.py` has two tools rather than one tool with an `if`.
+- `@wait(when=...)` is evaluated again when the node re-runs on resume, so the predicate
+  has to be deterministic on the same arguments. It sees the published `args` only, and
+  if it raises the call parks anyway rather than skipping the question.

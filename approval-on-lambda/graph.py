@@ -1,15 +1,14 @@
 """The refund agent. Nothing in here knows about DynamoDB, SQS or Lambda.
 
-A model, two tools, and a limit. `issue_refund` is an ordinary tool: the model calls it,
-the money moves, the run ends. `escalate_refund` is the same body behind `@wait(FINANCE)`:
-calling it parks the graph on `{"function": "escalate_refund", "args": {...}}` instead of
-running it, and the run ends with `__interrupt__` in the result.
+A model, one tool, and a limit. `@wait(FINANCE, when=...)` decides per call: under the
+limit the body runs and nobody is asked, over it the call parks the graph on
+`{"function": "issue_refund", "args": {...}}` and the run ends with `__interrupt__` in
+the result.
 
-Two tools rather than one `if`, because `@wait` is not conditional -- it parks every call
-to the function it decorates. The routing is the model's, off the tool descriptions and
-the limit in the system prompt. The same module runs in a notebook, in a test, and inside
-a Lambda behind a queue; what changes is the checkpointer passed to `build_agent()` and
-what the host does with the interrupt afterwards.
+The threshold is the predicate, so it is in code, in one place, and no model decides
+whether it applies. The same module runs in a notebook, in a test, and inside a Lambda
+behind a queue; what changes is the checkpointer passed to `build_agent()` and what the
+host does with the interrupt afterwards.
 
 `REFUNDS_ISSUED` is the side effect that must never happen twice. Every test ends by
 counting it.
@@ -51,31 +50,19 @@ FINANCE = WaitPolicy(
 
 SYSTEM = (
     "You are a refunds agent for an online store. When the customer asks for a refund, "
-    "call exactly one tool, once, with the order id and the amount in rupees: "
-    "issue_refund for {limit} rupees or less, escalate_refund for more than {limit}. "
+    "call issue_refund once, with the order id and the amount in rupees. "
     "Then tell the customer, in one sentence, what the tool returned. Do not invent an order id."
-).format(limit=APPROVAL_LIMIT)
+)
 
 
 @tool
+@wait(FINANCE, when=lambda order_id, amount: amount > APPROVAL_LIMIT)
 def issue_refund(order_id: str, amount: int) -> str:
-    """Refund an order of 25000 rupees or less. Runs immediately."""
-    # The limit is enforced here, not in the prompt. The model choosing the wrong tool is
-    # a routing mistake; the money moving without finance would be an incident. The model
-    # gets the refusal back as the tool result and can call escalate_refund instead.
-    if amount > APPROVAL_LIMIT:
-        return f"refused: {amount} is over the {APPROVAL_LIMIT} approval limit; call escalate_refund"
-    return _refund(order_id, amount)
-
-
-@tool
-@wait(FINANCE)
-def escalate_refund(order_id: str, amount: int) -> str:
-    """Refund an order of more than 25000 rupees. Finance approves before any money moves."""
-    return "finance approved; " + _refund(order_id, amount)
-
-
-def _refund(order_id: str, amount: int) -> str:
+    """Refund an order. Refunds over 25000 rupees need finance to approve first."""
+    # The threshold lives here, on the decorator, and the model is not consulted about it.
+    # The predicate sees the published args -- the same `order_id` and `amount` the
+    # approver reads on the envelope -- and is evaluated again when the node re-runs on
+    # resume, so it has to be deterministic. If it raises, the call parks anyway.
     REFUNDS_ISSUED.append(order_id)  # <- the irreversible call
     _record(order_id)
     return f"refunded {amount} for {order_id}"
@@ -110,7 +97,7 @@ def build_agent(checkpointer):
     model = ChatBedrockConverse(model=CHAT_MODEL, temperature=0, max_tokens=400)
     return create_agent(
         model,
-        tools=[issue_refund, escalate_refund],
+        tools=[issue_refund],
         system_prompt=SYSTEM,
         checkpointer=checkpointer,
     )
