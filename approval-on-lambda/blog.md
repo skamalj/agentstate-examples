@@ -96,14 +96,22 @@ The demo runs the graph in child interpreters, so the process really exits. One 
 --- interpreter 1 is gone. What is in DynamoDB right now ---
 
 Query on PK='order-4471-a2d5f9f5': 8 items
-  checkpoint SK='1f1b8445-fd5b-612b-bfff-132d24fb0073'   type='msgpack', 384 bytes
-  checkpoint SK='1f1b8445-fd6e-68ce-8000-4f45a6520f3d'   type='msgpack', 700 bytes
-  checkpoint SK='1f1b8446-0bf9-691b-8001-4ad87d4d2ba8'   type='msgpack', 2172 bytes
-  writes     SK='...-fd5b-...$50ff9cca-...$0'            channel='messages', 116 bytes
-  writes     SK='...-fd5b-...$50ff9cca-...$1'            channel='branch:to:model', 0 bytes
-  writes     SK='...-fd6e-...$41ebf892-...$0'            channel='messages', 1240 bytes
-  writes     SK='...-fd6e-...$41ebf892-...$1'            channel='__pregel_tasks', 188 bytes
-  writes     SK='...-0bf9-...$4751462b-...$-3'           channel='__interrupt__', 496 bytes
+  checkpoint SK='1f1b8445-fd5b-612b-bfff-132d24fb0073'
+             type='msgpack', 384 bytes, ttl=-
+  checkpoint SK='1f1b8445-fd6e-68ce-8000-4f45a6520f3d'
+             type='msgpack', 700 bytes, ttl=-
+  checkpoint SK='1f1b8446-0bf9-691b-8001-4ad87d4d2ba8'
+             type='msgpack', 2172 bytes, ttl=-
+  writes     SK='1f1b8445-fd5b-612b-bfff-132d24fb0073$50ff9cca-8add-dcdf-8c24-3d8998db25d1$0'
+             channel='messages', 116 bytes, ttl=-
+  writes     SK='1f1b8445-fd5b-612b-bfff-132d24fb0073$50ff9cca-8add-dcdf-8c24-3d8998db25d1$1'
+             channel='branch:to:model', 0 bytes, ttl=-
+  writes     SK='1f1b8445-fd6e-68ce-8000-4f45a6520f3d$41ebf892-1cae-c2c1-21a7-e88da81cef7c$0'
+             channel='messages', 1240 bytes, ttl=-
+  writes     SK='1f1b8445-fd6e-68ce-8000-4f45a6520f3d$41ebf892-1cae-c2c1-21a7-e88da81cef7c$1'
+             channel='__pregel_tasks', 188 bytes, ttl=-
+  writes     SK='1f1b8446-0bf9-691b-8001-4ad87d4d2ba8$4751462b-8ca3-cd49-90f6-c24686069b52$-3'
+             channel='__interrupt__', 496 bytes, ttl=-
 ```
 
 Three checkpoints, one per super-step, and five pending writes hanging off them. The tree below draws the parentage those sort keys encode: one table, no GSI.
