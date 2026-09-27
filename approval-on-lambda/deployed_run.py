@@ -1,4 +1,4 @@
-"""Act 4, driven from a laptop against the deployed stack.
+"""Step 4, driven from a laptop against the deployed stack.
 
 Plays the customer and then finance, against the real queues:
 

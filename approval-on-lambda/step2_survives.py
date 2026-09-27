@@ -1,4 +1,4 @@
-"""Act 2. The parked thread survives the process.
+"""Step 2. The parked thread survives the process.
 
 Same agent, same thread id, one line different: `DynamoDBSaver` instead of `InMemorySaver`.
 
@@ -6,9 +6,9 @@ This script is the parent. It runs the graph in *child interpreters* -- one to p
 to resume -- so "the process died" is a real process exit, not a comment. Between the two
 it prints the rows that exist in DynamoDB at that moment.
 
-    uv run python act2_survives.py            # moto_server, nothing in your account
-    AWS_ENDPOINT_URL_DYNAMODB=http://localhost:8000 uv run python act2_survives.py
-    AWS_ENDPOINT_URL_DYNAMODB= uv run python act2_survives.py   # real DynamoDB
+    uv run python step2_survives.py            # moto_server, nothing in your account
+    AWS_ENDPOINT_URL_DYNAMODB=http://localhost:8000 uv run python step2_survives.py
+    AWS_ENDPOINT_URL_DYNAMODB= uv run python step2_survives.py   # real DynamoDB
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ TABLE = os.environ.get("REFUND_CHECKPOINT_TABLE", "refund-checkpoints")
 
 # --------------------------------------------------------------------------- the child
 def child(action: str, thread_id: str) -> None:
-    """One graph run, one interpreter, then exit. Called as `python act2_survives.py <action>`."""
+    """One graph run, one interpreter, then exit. Called as `python step2_survives.py <action>`."""
     from langgraph.types import Command
     from langgraph_dynamodb_checkpoint import DynamoDBSaver
 

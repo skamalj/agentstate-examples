@@ -1,4 +1,4 @@
-"""Act 1. The question vanishes with the process.
+"""Step 1. The question vanishes with the process.
 
 The graph parks on a refund that needs finance. `InMemorySaver` holds the parked thread
 in this interpreter's heap. Then the interpreter exits -- which on Lambda happens within

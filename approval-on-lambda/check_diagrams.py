@@ -34,7 +34,7 @@ def grab(rx: str) -> str | None:
 # (diagram, label, expected value from blog.md, must also appear in the alt text)
 RULES: list[tuple[str, str, str | None, bool]] = []
 
-# act 4: the four REPORT lines, in order
+# step 4: the four REPORT lines, in order
 reports = re.findall(
     r"REPORT Duration: ([\d.]+) ms\s+Billed Duration: (\d+) ms\s+Max Memory Used: (\d+) MB(?:\s+Init Duration: ([\d.]+) ms)?",
     blog,
@@ -56,13 +56,13 @@ RULES += [
     # the silent failure: the property that fixes it and the evidence line the run prints
     ("timeout-silent-failure", "queue property", grab(r"`(content_based_deduplication=True)`"), False),
     ("timeout-silent-failure", "schedule DLQ count", (lambda v: v and f"undelivered schedules on the schedule dead-letter queue: {v}")(grab(r"undelivered schedules on the schedule dead-letter queue: (\d+)")), True),
-    # act 3: the envelope
+    # step 3: the envelope
     ("envelope", "event_id", grab(r'"event_id": "([A-Z0-9]+)"'), False),
     ("envelope", "thread_id", grab(r'"thread_id": "(order-[0-9a-f-]+)",\n  "question_id"'), False),
     ("envelope", "question_id[:8]", grab(r'"question_id": "([0-9a-f]{8})'), False),
     ("envelope", "expires_at", grab(r'"expires_at": "([^"]+)"'), False),
     ("envelope", "amount", grab(r'"amount": (\d+)'), False),
-    # act 2: the parked thread
+    # step 2: the parked thread
     ("parked-thread", "PK", grab(r"Query on PK='([^']+)'"), True),
     ("parked-thread", "items", grab(r"Query on PK='[^']+': (\d+) items"), True),
     ("parked-thread", "__interrupt__ bytes", grab(r"channel='__interrupt__', (\d+) bytes"), True),
@@ -97,6 +97,19 @@ for diagram, label, value, in_alt in RULES:
     flag = "y" if ok_svg else "N"
     alt_flag = "-" if not in_alt else ("y" if ok_alt else "N")
     print(f"{'OK  ' if ok else 'DIFF'} {diagram:18} {label:24} blog={value!r:30} svg={flag} alt={alt_flag}")
+
+# Retired vocabulary: a term the post has renamed away must not survive in any SVG or caption.
+# The rules above only ask "is this value present"; this is the opposite shape. Add a term here
+# whenever the post renames something (2026-09-27: "Act N" became "Step N").
+RETIRED = ["act 1", "act 2", "act 3", "act 4", "acts 2"]
+for term in RETIRED:
+    checked += 1
+    hits = [(name, where) for name, body in sorted(svgs.items())
+            for where, blob in (("svg", body), ("alt", alts.get(name, "")))  # raw svg: text AND aria-label
+            if re.search(r"\b" + re.escape(term) + r"\b", blob, re.I)]
+    for name, where in hits:
+        print(f"DIFF {name:18} {'retired term':24} {term!r} still in the {where}")
+    failed += bool(hits)
 
 print(f"\n{checked} checked, {failed} differences")
 sys.exit(1 if failed else 0)

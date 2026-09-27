@@ -1,4 +1,4 @@
-"""Act 4. The same host, on Lambda, behind a queue.
+"""Step 4. The same host, on Lambda, behind a queue.
 
 One message, one graph run, one publish. The `if` that tells an answer from a start is
 the documented rule written out, and it is the only thing in this file that is not

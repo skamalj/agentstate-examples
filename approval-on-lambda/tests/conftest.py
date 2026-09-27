@@ -1,6 +1,6 @@
 """One local AWS, one set of tables and queues, shared by every test in the module.
 
-Each scenario runs the host in child interpreters, exactly as the acts do, so
+Each scenario runs the host in child interpreters, exactly as the steps do, so
 "a fresh process resumed it" is a fact about processes and not about objects.
 
 Needs AWS credentials for Bedrock (the model is real); everything else is `moto_server`.
@@ -18,7 +18,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import act3_asks  # noqa: E402
+import step3_asks  # noqa: E402
 from local_aws import LocalAws  # noqa: E402
 
 
@@ -30,7 +30,11 @@ def _aws_ok() -> bool:
         return False
 
 
-collect_ignore_glob = [] if _aws_ok() else ["test_*.py"]
+# Only the agent's own tests need credentials, because they call Bedrock. The timeout
+# consumer's tests run against moto with dummy keys, so they must still be collected when
+# there is no account -- otherwise "these need no AWS" is true of the file and false of
+# `pytest -q`, which is the only way anyone actually runs it.
+collect_ignore_glob = [] if _aws_ok() else ["test_refund_agent.py"]
 
 
 @pytest.fixture(scope="session")
@@ -38,12 +42,12 @@ def local():
     with LocalAws() as running:
         ddb = boto3.resource("dynamodb")
         sqs = boto3.client("sqs")
-        act3_asks.make_tables(ddb)
-        questions_url, answers_url = act3_asks.make_queues(sqs)
+        step3_asks.make_tables(ddb)
+        questions_url, answers_url = step3_asks.make_queues(sqs)
         env = dict(
             running.child_env,
             REFUND_QUESTIONS_QUEUE=questions_url,
-            REFUND_SIDE_EFFECT_TABLE=act3_asks.SIDE_EFFECTS,
+            REFUND_SIDE_EFFECT_TABLE=step3_asks.SIDE_EFFECTS,
         )
         yield {
             "env": env,
@@ -64,7 +68,7 @@ def start(local, order_id: str, amount: int = 41_000) -> str:
     """Start a thread named after the order. thread_id == order_id here; they need not be."""
     import graph as refund
 
-    return act3_asks.run_host(
+    return step3_asks.run_host(
         {
             "thread_id": order_id,
             "input": {"messages": [("user", refund.over_limit(order_id, amount))]},
@@ -75,20 +79,20 @@ def start(local, order_id: str, amount: int = 41_000) -> str:
 
 def answer(local, envelope: dict, value) -> str:
     message = dict(envelope["reply_with"], answer=value)
-    return act3_asks.run_host(message, local["env"])
+    return step3_asks.run_host(message, local["env"])
 
 
 def envelope_for(local, thread_id: str) -> dict:
     """The envelope SqsAnnounce put on the questions queue for this thread."""
     for _ in range(5):
-        for body in act3_asks.receive(local["sqs"], local["questions_url"]):
+        for body in step3_asks.receive(local["sqs"], local["questions_url"]):
             if body["thread_id"] == thread_id:
                 return body
     raise AssertionError(f"no envelope for {thread_id}")
 
 
 def calls(local, order_id: str) -> int:
-    return act3_asks.calls_recorded(local["ddb"], order_id)
+    return step3_asks.calls_recorded(local["ddb"], order_id)
 
 
 def pids(output: str) -> list[str]:
@@ -96,7 +100,7 @@ def pids(output: str) -> list[str]:
 
 
 def approvals_row(local, thread_id: str, question_id: str) -> dict:
-    return local["ddb"].Table(act3_asks.APPROVALS).get_item(
+    return local["ddb"].Table(step3_asks.APPROVALS).get_item(
         Key={"pk": f"THREAD#{thread_id}", "sk": f"WAIT#{question_id}"}, ConsistentRead=True
     )["Item"]
 

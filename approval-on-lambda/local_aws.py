@@ -1,15 +1,15 @@
-"""A local DynamoDB and SQS for the first three acts, so nothing is created in your account.
+"""A local DynamoDB and SQS for the first three steps, so nothing is created in your account.
 
 `moto_server` is a real HTTP server speaking both. It is a separate process, which is the
-point: act 2 kills the interpreter that parked the thread, and the parked thread has to
+point: step 2 kills the interpreter that parked the thread, and the parked thread has to
 be somewhere that is not that interpreter's heap.
 
 boto3 reads per-service endpoints from `AWS_ENDPOINT_URL_DYNAMODB` and
 `AWS_ENDPOINT_URL_SQS`, so only those two services are redirected -- Bedrock still goes to
-the real one, because the model is real. Nothing in `graph.py`, `handler.py` or the acts
+the real one, because the model is real. Nothing in `graph.py`, `handler.py` or the steps
 mentions any of this. Point `AWS_ENDPOINT_URL_DYNAMODB` at DynamoDB Local
-(`docker run -p 8000:8000 amazon/dynamodb-local`) and act 2 runs there instead; unset both
-and the acts run against real AWS.
+(`docker run -p 8000:8000 amazon/dynamodb-local`) and step 2 runs there instead; unset both
+and the steps run against real AWS.
 """
 
 from __future__ import annotations

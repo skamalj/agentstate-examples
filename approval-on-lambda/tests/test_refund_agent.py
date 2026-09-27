@@ -94,7 +94,7 @@ def test_the_deadline_default_is_an_ordinary_answer(local, order_id):
 
 
 def test_under_the_limit_nothing_is_asked(local, order_id):
-    from act3_asks import run_host
+    from step3_asks import run_host
 
     out = run_host(
         {"thread_id": order_id, "input": {"messages": [("user", refund.under_limit(order_id, 1_800))]}},
@@ -136,9 +136,9 @@ def test_the_limit_is_code_not_a_prompt(local, order_id, monkeypatch):
     Call the unguarded-looking tool directly with an amount only finance may approve. It
     must refuse without refunding, whatever the system prompt says.
     """
-    import act3_asks
+    import step3_asks
 
-    monkeypatch.setenv("REFUND_SIDE_EFFECT_TABLE", act3_asks.SIDE_EFFECTS)
+    monkeypatch.setenv("REFUND_SIDE_EFFECT_TABLE", step3_asks.SIDE_EFFECTS)
     refund.reset()
 
     out = refund.issue_refund.invoke({"order_id": order_id, "amount": 41_000})

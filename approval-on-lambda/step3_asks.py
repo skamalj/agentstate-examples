@@ -1,7 +1,7 @@
-"""Act 3. The question gets out, and the answer gets back in.
+"""Step 3. The question gets out, and the answer gets back in.
 
-After act 2 the thread survives, but only the checkpoint knows a question was asked. This
-act adds the two lines that tell somebody else:
+After step 2 the thread survives, but only the checkpoint knows a question was asked. This
+step adds the two lines that tell somebody else:
 
     @wait(FINANCE)                          # already on the tool, in graph.py
     publish_interrupts(result, thread_id, announce=[SqsAnnounce(...), DynamoDbAnnounce(...)])
@@ -10,7 +10,7 @@ The parent plays the consumer: it reads the envelope off the questions queue, pr
 prints the approvals row, and sends an answer to the answers queue. Child interpreters
 play the host -- one per message, exactly as a Lambda would be.
 
-    uv run python act3_asks.py            # moto_server, nothing in your account
+    uv run python step3_asks.py            # moto_server, nothing in your account
 """
 
 from __future__ import annotations

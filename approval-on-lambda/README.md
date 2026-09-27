@@ -23,9 +23,9 @@ uv venv -p 3.12
 uv sync --all-groups
 export AWS_PROFILE=<your sso profile> AWS_DEFAULT_REGION=ap-south-1
 
-uv run python act1_vanishes.py   | tee run-act1.log        # InMemorySaver: the question is gone
-uv run python act2_survives.py   | tee run-act2.log        # DynamoDBSaver: park, kill, resume
-uv run python act3_asks.py       | tee run-act3.log        # @wait + publish_interrupts: queue + row
+uv run python step1_vanishes.py   | tee run-step1.log        # InMemorySaver: the question is gone
+uv run python step2_survives.py   | tee run-step2.log        # DynamoDBSaver: park, kill, resume
+uv run python step3_asks.py       | tee run-step3.log        # @wait + publish_interrupts: queue + row
 uv run pytest -q
 ```
 
@@ -37,15 +37,15 @@ nothing to clean up. Point those variables somewhere else to change that:
 ```bash
 # DynamoDB Local instead of moto
 docker run -d -p 8000:8000 amazon/dynamodb-local
-AWS_ENDPOINT_URL_DYNAMODB=http://localhost:8000 uv run python act2_survives.py
+AWS_ENDPOINT_URL_DYNAMODB=http://localhost:8000 uv run python step2_survives.py
 
 # real DynamoDB and SQS in your account (creates tables and queues)
-AWS_ENDPOINT_URL_DYNAMODB= AWS_ENDPOINT_URL_SQS= uv run python act2_survives.py
+AWS_ENDPOINT_URL_DYNAMODB= AWS_ENDPOINT_URL_SQS= uv run python step2_survives.py
 ```
 
-Act 1 needs neither: `InMemorySaver` is the whole point of it.
+Step 1 needs neither: `InMemorySaver` is the whole point of it.
 
-`act2` and `act3` run the graph in **child interpreters**, so "the process
+`step2` and `step3` run the graph in **child interpreters**, so "the process
 died" is a process exit and not a comment. The parent plays the consumer: it reads the
 envelope off the queue and sends the answer back.
 
@@ -54,9 +54,9 @@ envelope off the queue and sends the answer back.
 | file | what it is |
 |---|---|
 | `graph.py` | the agent: a model, `issue_refund` (limit enforced in the body), and `escalate_refund` behind `@wait(FINANCE)` |
-| `act1_vanishes.py` | `InMemorySaver`, park, new interpreter, the question is gone |
-| `act2_survives.py` | `DynamoDBSaver`, park, kill, resume; prints the DynamoDB items in between |
-| `act3_asks.py` | `publish_interrupts` to a FIFO queue and an approvals row; answer, duplicate, late answer |
+| `step1_vanishes.py` | `InMemorySaver`, park, new interpreter, the question is gone |
+| `step2_survives.py` | `DynamoDBSaver`, park, kill, resume; prints the DynamoDB items in between |
+| `step3_asks.py` | `publish_interrupts` to a FIFO queue and an approvals row; answer, duplicate, late answer |
 | `handler.py` | the Lambda host: one graph, one `if`, one publish to four announcers |
 | `timeout_scheduler.py` | the consumer that turns `expires_at` into a one-shot EventBridge schedule |
 | `cdk/` | three FIFO queues, two Lambdas, three tables, a schedule dead-letter queue |
@@ -111,7 +111,7 @@ The timeout scheduler's role is separate and smaller:
 - that assumed role can `sqs:SendMessage` to the answers queue and its dead-letter queue,
   and nothing else
 
-One thing to know: `DynamoDBSaver` creates its table if it is missing, which is why acts 2
+One thing to know: `DynamoDBSaver` creates its table if it is missing, which is why steps 2
 and 3 need no setup. A role that cannot call `CreateTable` needs the table to exist
 already, so the stack creates it — `PK`/`SK` (uppercase), string, no GSI, with `ttl` as
 the TTL attribute. The package enables table TTL only on a table it created itself, so a
@@ -135,15 +135,15 @@ All of this ran on 2026-09-24, from Windows 11 against `ap-south-1`, against the
 | `aws-cdk-lib` | 2.270.0 |
 | model | `global.anthropic.claude-sonnet-4-6` on Bedrock, `temperature=0` |
 
-### Local acts (`moto_server` for DynamoDB and SQS, real Bedrock)
+### Local steps (`moto_server` for DynamoDB and SQS, real Bedrock)
 
-| act | log | what it produced |
+| step | log | what it produced |
 |---|---|---|
-| 1, `InMemorySaver` | `run-act1.log` | parked on 1 question; the fresh interpreter's resume produced a 1-message thread and a greeting; refunds issued: 0 |
-| 2, `DynamoDBSaver` | `run-act2.log` | 8 items on `PK=order-4471-a2d5f9f5` while parked — 3 checkpoints (384 / 700 / 2172 bytes) and 5 pending writes, the last being `channel='__interrupt__'`, 496 bytes; resumed in a different pid; 14 items afterwards |
-| 3, `@wait` + `publish_interrupts` | `run-act3.log` | 1 envelope on the questions queue, 1 row in the approvals table; approve → refund; the same answer again and a later `reject` → nothing; DynamoDB refund counter across all four host runs: **1** |
+| 1, `InMemorySaver` | `run-step1.log` | parked on 1 question; the fresh interpreter's resume produced a 1-message thread and a greeting; refunds issued: 0 |
+| 2, `DynamoDBSaver` | `run-step2.log` | 8 items on `PK=order-4471-a2d5f9f5` while parked — 3 checkpoints (384 / 700 / 2172 bytes) and 5 pending writes, the last being `channel='__interrupt__'`, 496 bytes; resumed in a different pid; 14 items afterwards |
+| 3, `@wait` + `publish_interrupts` | `run-step3.log` | 1 envelope on the questions queue, 1 row in the approvals table; approve → refund; the same answer again and a later `reject` → nothing; DynamoDB refund counter across all four host runs: **1** |
 
-Each act runs the graph in child interpreters; the pids in the logs are different processes.
+Each step runs the graph in child interpreters; the pids in the logs are different processes.
 
 ### Deployed (`ap-south-1`, tagged `project=agent-wait-demo`, destroyed after the run)
 
@@ -208,7 +208,7 @@ entered the queue.
 
 ```text
 ................                                                         [100%]
-16 passed in 109.91s (0:01:49)
+16 passed in 85.24s (0:01:25)
 ```
 
 | test | asserts |
@@ -238,6 +238,9 @@ at all** — moto's EventBridge Scheduler backend with dummy credentials:
 
 What these cannot cover is the schedule *firing* — moto does not run schedules. That half
 is proved only by `run-deployed-timeout.log`.
+
+With no credentials at all, `uv run pytest -q` collects only this file and reports
+`6 passed`; `tests/test_refund_agent.py` is skipped because it calls Bedrock.
 
 Each test is a real model call and real interpreters, so the wording in your run differs.
 
