@@ -253,9 +253,18 @@ Between the question going out and the answer coming back the cost is zero.
 
 ## The deadline, enforced
 
-`FINANCE` declares `timeout="PT2M"` on the deployed stack. Three days is the real policy; two minutes is short enough to watch. `agent-wait` publishes it as `expires_at` and does nothing about it. `expires_at` and `default` are machine-readable so something else can act on them, with no human and no agent code.
+`FINANCE` declares `timeout="PT2M"` on the deployed stack. Three days is the real policy; two minutes is short enough to watch.
 
-Here that is a second Lambda on a second queue — one of four destinations the same `publish_interrupts` call writes to, and the only one no human reads:
+`agent-wait` writes the deadline onto the envelope and does nothing about it:
+
+```text
+question arrived after 6.4s
+question_id : 5527dd1507fc72b7f0e617b7cb3c8752
+expires_at  : 2026-09-27T13:11:10Z
+default     : {"action": "reject", "reason": "no finance response within PT2M"}
+```
+
+Two machine-readable fields: when the answer is due, and what to do if it never comes. That envelope goes to every destination in the list — a queue a person reads, a table a dashboard reads, and a queue a scheduler reads:
 
 ```python
 ANNOUNCE = [
@@ -266,7 +275,7 @@ ANNOUNCE = [
 ]
 ```
 
-That function asks EventBridge Scheduler for a one-shot delivery of the policy's `default`, at `expires_at`, to the queue the agent listens on. One JSON document in, one schedule out:
+The scheduler Lambda reads it off that second queue and builds the message the deadline will send:
 
 ```python
 scheduler.create_schedule(
@@ -278,19 +287,9 @@ scheduler.create_schedule(
 )
 ```
 
-`answer_for` invents nothing: it copies the envelope's `reply_with` stub and drops `default` into `answer`. What the deadline sends is what a human sends by clicking reject.
-
-The name comes from `question_id`, so arming the timer is idempotent — a republished envelope gets `ConflictException` and is dropped. `DELETE` means the schedule reaps itself, so there is no sweeper.
-
-A run where nobody answers:
+`answer_for` invents nothing: it copies the envelope's `reply_with` stub and drops `default` into `answer`. The Lambda hands that message to EventBridge Scheduler with a time to send it, and exits. Read back from Scheduler, the schedule holds the whole thing:
 
 ```text
-question arrived after 6.4s
-question_id : 5527dd1507fc72b7f0e617b7cb3c8752
-expires_at  : 2026-09-27T13:11:10Z
-default     : {"action": "reject", "reason": "no finance response within PT2M"}
-
---- what the consumer created, before it fires ---
 {
   "Name": "refund-timeout-5527dd1507fc72b7f0e617b7",
   "ScheduleExpression": "at(2026-09-27T13:11:10)",
@@ -311,7 +310,15 @@ default     : {"action": "reject", "reason": "no finance response within PT2M"}
     }
   }
 }
+```
 
+`Target.Input` is the rejection, written out in full, with nothing running. Its `answer` is the `default` line above it, copied. What the deadline sends is what a human sends by clicking reject.
+
+The name comes from `question_id`, so arming the timer twice raises `ConflictException` instead of setting a second one. `DELETE` means the schedule reaps itself.
+
+At `expires_at`, Scheduler delivers that message to the answers queue, where it is one more answer:
+
+```text
 refunds recorded while it waits: 0
 open rows for this thread       : 1
 
@@ -323,16 +330,14 @@ the agent resumed at 13:11:32Z, 22s after expires_at
 refunds recorded after the deadline: 0
 ```
 
-Twenty-two seconds late: Scheduler is minute-granular, so that gap is delivery, not drift. The customer got a sentence rather than silence, because the reject travelled the graph as an ordinary answer.
-
-Then the human turns up late and approves:
+The reject travelled the graph like any other answer, so the customer got a sentence rather than silence. Then the human turns up late and approves:
 
 ```text
 --- a human approves, too late ---
 refunds recorded after the late approval: 0
 ```
 
-Nothing runs, and the timeout added no guard. It is the same no-op as a duplicate approval: the thread has moved past the question. The deadline answered first, and then there was nothing left to answer.
+Nothing runs, and the timeout needed no guard to stop it. It is the same no-op as a duplicate approval: the thread has moved past the question.
 
 ![The deadline end to end on thread order-93852c: the start invocation parks and publishes the same envelope to questions.fifo and timeouts.fifo. The scheduler Lambda creates a one-shot schedule named refund-timeout-5527dd1507fc72b7f0e617b7 with at(2026-09-27T13:11:10), ActionAfterCompletion DELETE, targeting answers.fifo with MessageGroupId order-93852c and the envelope's default as the answer. For 216 s no process runs. At expires_at 2026-09-27T13:11:10Z nothing fires; at 13:11:32Z, 22 s later, the schedule delivers the default and deletes itself, the agent resumes and rejects, refunds recorded 0. A late human approval is a no-op, refunds still 0.](images/timeout-sequence.png)
 
